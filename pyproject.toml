@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-pipguard = "pipguard.cli:app"
+pipguard = "pipguard.cli:main"
 
 [dependency-groups]
 dev = [
@@ -58,6 +58,7 @@ ignore = ["S101", "S603", "S607"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S", "B"]
+"src/pipguard/cli.py" = ["B008"]  # typer declares options as defaults
 "scripts/**" = ["S"]
 
 [tool.pyright]

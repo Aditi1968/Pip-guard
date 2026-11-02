@@ -12,6 +12,7 @@ import argparse
 import base64
 import hashlib
 import zipfile
+from collections.abc import Mapping
 from pathlib import Path
 
 # Fixed timestamp so the same inputs always give the same wheel bytes and SHA-256.
@@ -27,7 +28,7 @@ def build_wheel(
     out_dir: Path,
     name: str,
     version: str,
-    files: dict[str, str | bytes],
+    files: Mapping[str, str | bytes],
     requires: list[str] | None = None,
     top_level: list[str] | None = None,
 ) -> Path:

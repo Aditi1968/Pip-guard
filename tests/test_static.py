@@ -286,11 +286,19 @@ def test_setup_py_everything_is_hook_code(tmp_path: Path) -> None:
 
 
 def test_overridden_command_via_module_import(tmp_path: Path) -> None:
-    f = src(
-        tmp_path,
-        "from distutils.command import egg_info\nclass E(egg_info.egg_info):\n    pass\n",
-    )
-    assert f.install.overridden_install_command
+    code = "from distutils.command import egg_info\nclass E(egg_info.egg_info):\n    pass\n"
+    # Without a root setup.py nothing would run the override (e.g. a meson sdist's
+    # vendored code), so it is not an install-time indicator.
+    assert not src(tmp_path, code).install.overridden_install_command
+    (tmp_path / "setup.py").write_text("from setuptools import setup\nsetup()\n")
+    assert run(tmp_path).install.overridden_install_command
+
+
+def test_nested_setup_py_is_not_an_install_hook(tmp_path: Path) -> None:
+    nested = tmp_path / "pkg-1.0" / "tests" / "examples"
+    nested.mkdir(parents=True)
+    (nested / "setup.py").write_text("from setuptools import setup\nsetup(cmdclass={'x': 1})\n")
+    assert not run(tmp_path).install.setup_py_cmdclass
 
 
 def test_bytes_and_ipv6_literals(tmp_path: Path) -> None:
@@ -395,3 +403,21 @@ def test_bad_snapshot(tmp_path: Path) -> None:
     p.write_text("{}", encoding="utf-8")
     with pytest.raises(PipGuardError):
         static.load_top_packages(p)
+
+
+def test_lan_and_link_local_ips_are_not_raw_ip_indicators() -> None:
+    from pipguard.static import _is_raw_ip
+
+    for local in (
+        "192.168.1.1",
+        "10.0.0.5",
+        "172.16.3.4",
+        "169.254.169.254",
+        "fe80::1",
+        "255.255.255.0",
+        "::2",
+        "100.64.0.1",
+    ):
+        assert not _is_raw_ip(local), local
+    for routable in ("45.33.12.9", "203.0.113.7", "2001:db8::1", "8.8.8.8"):
+        assert _is_raw_ip(routable), routable

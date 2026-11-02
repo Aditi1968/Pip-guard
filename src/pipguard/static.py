@@ -18,6 +18,7 @@ import math
 import os
 import re
 import tomllib
+import warnings
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
@@ -456,7 +457,9 @@ def _empty_literal(node: ast.expr) -> bool:
 def _analyse_source(acc: _Acc, source: bytes | str, *, hook: bool, setup_py: bool) -> bool:
     """Parse and visit one source; False (and nothing raised) if it cannot be parsed."""
     try:
-        tree = ast.parse(source)
+        with warnings.catch_warnings():  # e.g. invalid escape sequences in package code
+            warnings.simplefilter("ignore")
+            tree = ast.parse(source)
     except (SyntaxError, ValueError, RecursionError, MemoryError, OverflowError):
         return False
     try:
@@ -519,17 +522,34 @@ def _is_ip(s: str) -> bool:
     return True
 
 
-def _is_raw_ip(s: str) -> bool:
-    """A valid IP literal that is not loopback or unspecified (0.0.0.0, ::, 127.x, ::1).
+# Documentation ranges are not globally routable but are what fixtures (and docs) use.
+_DOC_NETS = (
+    ipaddress.ip_network("192.0.2.0/24"),
+    ipaddress.ip_network("198.51.100.0/24"),
+    ipaddress.ip_network("203.0.113.0/24"),
+    ipaddress.ip_network("2001:db8::/32"),
+)
 
-    Private and reserved ranges are kept: they are still hard-coded addresses. A version
-    string that happens to be a valid IPv4 (``1.2.3.4``) is indistinguishable and counts.
+
+_GLOBAL_UNICAST_V6 = ipaddress.ip_network("2000::/3")
+
+
+def _is_raw_ip(s: str) -> bool:
+    """A valid, globally routable IP literal (or a documentation-range one, for fixtures).
+
+    LAN, loopback, link-local, CGNAT, netmasks and other reserved values are what legitimate
+    code and test suites hard-code (requests' sdist has 17 such literals); an exfiltration
+    target is routable. A version string that is a valid public IPv4 (``1.2.3.4``) still
+    counts: it is indistinguishable.
     """
     try:
         ip = ipaddress.ip_address(s)
     except ValueError:
         return False
-    return not (ip.is_loopback or ip.is_unspecified)
+    if any(ip.version == n.version and ip in n for n in _DOC_NETS):
+        return True
+    # IPv6: only global unicast (2000::/3); Python calls odd reserved values like ::2 global.
+    return ip.is_global and (ip.version == 4 or ip in _GLOBAL_UNICAST_V6)
 
 
 # ---------------------------------------------------------------- per-file handlers
@@ -574,7 +594,7 @@ def analyze_dir(
 
     acc = _Acc()
     file_count = total_size = py_count = 0
-    compiled = False
+    compiled = has_root_setup = False
     for dirpath, _dirs, files in os.walk(root, onerror=_walk_error):
         for fname in files:
             path = Path(dirpath, fname)
@@ -594,8 +614,12 @@ def analyze_dir(
                 raise PipGuardError(f"cannot read {path}: {e}") from e
             if suffix == ".py":
                 py_count += 1
+                # Only the project's own setup.py (root or the sdist's top folder) runs at
+                # install time; vendored sub-projects' setup.py files never do.
+                is_setup = fname == "setup.py" and len(path.relative_to(root).parts) <= 2
+                has_root_setup = has_root_setup or is_setup
                 ok = data is not None and _analyse_source(
-                    acc, data, hook=fname == "setup.py", setup_py=fname == "setup.py"
+                    acc, data, hook=is_setup, setup_py=is_setup
                 )
                 acc.syntax_errors += not ok
                 continue
@@ -622,7 +646,11 @@ def analyze_dir(
         py_file_count=py_count,
         syntax_error_count=acc.syntax_errors,
         has_compiled_extensions=compiled,
-        install=InstallIndicators(**acc.install),
+        # An install-command override only runs via the project's own setup.py; classes in
+        # vendored or test code of a setup.py-less (e.g. meson) sdist never execute.
+        install=InstallIndicators(
+            **(acc.install | ({} if has_root_setup else {"overridden_install_command": False}))
+        ),
         suspicious=SuspiciousCounts(**acc.counts),
         max_string_entropy=round(acc.max_entropy, 4),
         high_entropy_string_count=acc.high_entropy,
