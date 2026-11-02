@@ -1,0 +1,139 @@
+# pip guard composite action (FR-6.1 .. FR-6.6, FR-7.4).
+#
+# CLI contract this action relies on (`pipguard ci`):
+#   pipguard ci --base REF [--head REF (default HEAD)]
+#               --summary PATH        append job-summary Markdown here
+#               --report PATH         write the gzip JSON report artifact here
+#               --cache PATH          SQLite verdict cache file
+#               --config PATH         pipguard.toml
+#               [--fail-on-warn]      warn exits 1
+#               [--read-only-cache]   never write the cache (fork PRs, FR-1.3)
+#               [--comment-file PATH] write the PR comment body here
+#   exit codes: 0 allow/warn, 1 warn with --fail-on-warn, 2 block, 3 error/incomplete.
+#
+# Consuming workflow requirements (PRD: CI trust model):
+#   - trigger on `pull_request`, NEVER `pull_request_target`;
+#   - `permissions: contents: read`, plus `pull-requests: write` only if you want the
+#     same-repo PR comment (fork PRs get a read-only token and the comment is skipped);
+#   - `actions/checkout` with `fetch-depth: 0` so the base commit is available;
+#   - pin this action to a commit SHA;
+#   - NEVER set `continue-on-error: true` on this step: it defeats enforcement.
+name: pip guard
+description: Judge added or changed pinned Python dependencies by what they do.
+
+inputs:
+  fail-on-warn:
+    description: Fail the job on warn verdicts too.
+    default: "false"
+  config:
+    description: Path to pipguard.toml.
+    default: pipguard.toml
+  base-ref:
+    description: Git ref to diff against.
+    default: ${{ github.event.pull_request.base.sha }}
+  python-version:
+    description: Python used to run pip guard.
+    default: "3.12"
+  comment:
+    description: Post or update one PR comment on same-repository PRs (FR-6.4).
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc # v6.4.3
+
+    - name: Detect fork PR
+      id: ctx
+      shell: bash
+      env:
+        IS_FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+      run: echo "fork=$IS_FORK" >> "$GITHUB_OUTPUT"
+
+    # Inputs reach scripts only through env, never `${{ }}` inside `run:` (injection).
+    - name: Install pip guard
+      shell: bash
+      env:
+        PYTHON_VERSION: ${{ inputs.python-version }}
+      run: uv tool install --python "$PYTHON_VERSION" "$GITHUB_ACTION_PATH/.."
+
+    # Restored caches are untrusted; cache.py treats anything odd as a miss.
+    - name: Restore verdict cache
+      uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+      with:
+        path: .pipguard-cache/verdicts.sqlite
+        key: pipguard-v1-${{ runner.os }}-${{ github.run_id }}
+        restore-keys: pipguard-v1-${{ runner.os }}-
+
+    - name: Build sandbox image
+      shell: bash
+      run: docker build -f "$GITHUB_ACTION_PATH/../sandbox/sandbox.Dockerfile" -t pipguard-sandbox:local "$GITHUB_ACTION_PATH/.."
+
+    - name: Scan dependencies
+      id: scan
+      shell: bash
+      env:
+        BASE: ${{ inputs.base-ref }}
+        CONFIG: ${{ inputs.config }}
+        FAIL_ON_WARN: ${{ inputs.fail-on-warn }}
+        IS_FORK: ${{ steps.ctx.outputs.fork }}
+      run: |
+        mkdir -p .pipguard-cache
+        args=(ci --base "$BASE" --summary "$GITHUB_STEP_SUMMARY"
+              --report pipguard-report.json.gz --cache .pipguard-cache/verdicts.sqlite
+              --config "$CONFIG" --comment-file "$RUNNER_TEMP/pipguard-comment.md")
+        if [ "$FAIL_ON_WARN" = "true" ]; then args+=(--fail-on-warn); fi
+        # Anything but an explicit same-repo answer is treated as a fork: no cache writes.
+        if [ "$IS_FORK" != "false" ]; then args+=(--read-only-cache); fi
+        # The step shell runs with -e: `|| code=$?` records the code instead of aborting
+        # before it is written. The step still exits with it, and the map step decides.
+        code=0
+        pipguard "${args[@]}" || code=$?
+        echo "code=$code" >> "$GITHUB_OUTPUT"
+        exit "$code"
+
+    - name: Save verdict cache
+      if: always() && steps.ctx.outputs.fork == 'false'
+      uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+      with:
+        path: .pipguard-cache/verdicts.sqlite
+        key: pipguard-v1-${{ runner.os }}-${{ github.run_id }}
+
+    - name: Upload report
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: pipguard-report
+        path: pipguard-report.json.gz
+        if-no-files-found: warn
+        retention-days: 14
+
+    # Best-effort (FR-6.4, P1): needs `pull-requests: write`; same-repo PRs only. A failed
+    # comment only warns; the job outcome is decided by the map step below.
+    - name: Post or update PR comment
+      if: always() && inputs.comment == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        PR: ${{ github.event.pull_request.number }}
+      run: |
+        body="$RUNNER_TEMP/pipguard-comment.md"
+        if [ ! -s "$body" ]; then echo "no comment body produced"; exit 0; fi
+        id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+          --jq '.[] | select(.body | startswith("<!-- pipguard-report -->")) | .id' | head -n 1) || id=""
+        if [ -n "$id" ]; then
+          gh api -X PATCH "repos/$REPO/issues/comments/$id" -F "body=@$body" >/dev/null \
+            || echo "::warning title=pip guard::could not update the PR comment"
+        else
+          gh api -X POST "repos/$REPO/issues/$PR/comments" -F "body=@$body" >/dev/null \
+            || echo "::warning title=pip guard::could not post the PR comment"
+        fi
+
+    # Final word on the job outcome; runs even if an earlier step failed or was skipped.
+    - name: Map exit code
+      if: always()
+      shell: bash
+      env:
+        CODE: ${{ steps.scan.outputs.code }}
+      run: bash "$GITHUB_ACTION_PATH/map_exit.sh" "$CODE"

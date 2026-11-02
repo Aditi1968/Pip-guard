@@ -86,7 +86,7 @@ What strace can and cannot see: subprocess argv, file opens/writes and `connect(
 Job summary with a verdict table (package, artifact, verdict, coverage, top reasons). Exit codes: 0 allow/warn, 2 block, 3 error/incomplete; `--fail-on-warn` makes warn exit 1. The composite action maps codes to job outcomes explicitly, with a test per mapping. `continue-on-error: true` on the step defeats enforcement and the README says so. Compressed JSON report always; traces only on non-`allow`, capped at 5 MB. PR comment only on same-repo PRs (fork PRs have a read-only token); never `pull_request_target`.
 
 ### cache.py
-SQLite file keyed by (artifact sha256, scanner version, model version, config hash). Carried between runs by GitHub Actions cache, best-effort; cache writes skipped on fork PRs. A behavioural result is reused only for the identical artifact hash and runtime image digest.
+SQLite file keyed by (artifact sha256, scanner version, model version, config hash). Carried between runs by GitHub Actions cache, best-effort; cache writes skipped on fork PRs. A behavioural result is reused only for the identical artifact hash and runtime image digest, so the image digest is part of the key (empty for static-only verdicts). Only `allow`/`warn`/`block` are cached; `error`/`incomplete` describe a failed run and are always retried. The restored file is untrusted: any sqlite error, invalid row, oversized row, or row whose own versions/artifact disagree with its key is a miss plus a warning.
 
 ## Evaluation (three tracks, never mixed)
 
