@@ -91,6 +91,14 @@ What strace can and cannot see: subprocess argv, file opens/writes and `connect(
 ### rules.py and scoring.py
 `rules.yaml` holds **blocking rules** (require ≥ 0.95 measured precision on the stratified benign sample; any hit → `block`) and **warning rules** (any hit → at least `warn`). Model ladder: rules → logistic regression → LightGBM, each adopted only if it improves recall at the FPR target by ≥ 3 points on the held-out fold. Thresholds are chosen on validation data and stored with the model artifact; 0.5/0.85 are placeholders. Allowlist entries cap a package at `warn` but never hide the observation.
 
+Decisions (Workstream D):
+- Rule conditions are a tiny interpreted language (`feature op value`, nested `all`/`any`), validated at load against `FEATURE_NAMES` plus rule-only extras; reasons are fixed templates filled only with `safe_text()` values (length-capped, control chars removed, Markdown/HTML metacharacters turned into entities).
+- Blocking rules are the three the PRD names; `connect()` during install only counts non-loopback IP connects (loopback/Unix sockets warn). All blocking rules still need their >= 0.95 precision confirmed in `docs/EVAL.md`.
+- Level order: rules (block/warn) -> model can raise, never lower -> allowlist caps block at warn -> incomplete evidence gives `incomplete` unless already `block`. So an allowlisted, incomplete package is `incomplete`, never `warn`; `error`/`incomplete` are never capped.
+- `skipped:policy` counts as incomplete when the sandbox was requested; with `--no-sandbox` the level comes from static evidence and coverage says behaviour was not run.
+- Thresholds: the model artifact's win unless `pipguard.toml` sets non-default ones.
+- Logistic regression runs as a pure-Python dot product; Platt is applied to the logit as `1/(1+exp(a*z+b))`. A LightGBM artifact raises until it is adopted. No `model/model.json` means rules-only; a malformed one is an error.
+
 ### report.py and the Action
 Job summary with a verdict table (package, artifact, verdict, coverage, top reasons). Exit codes: 0 allow/warn, 2 block, 3 error/incomplete; `--fail-on-warn` makes warn exit 1. The composite action maps codes to job outcomes explicitly, with a test per mapping. `continue-on-error: true` on the step defeats enforcement and the README says so. Compressed JSON report always; traces only on non-`allow`, capped at 5 MB. PR comment only on same-repo PRs (fork PRs have a read-only token); never `pull_request_target`.
 

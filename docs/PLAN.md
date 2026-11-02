@@ -63,8 +63,8 @@ Done when: every fixture's expected observation appears in `BehaviorTrace`, beni
 
 Goal: a verdict with reasons and coverage, and `docs/EVAL.md` with numbers you can defend.
 
-- [ ] `rules.yaml` + `rules.py`: blocking rules and warning rules with fixed reason strings (FR-5.1)
-- [ ] `scoring.py`: `Verdict` assembly — blocking hit → block; warning hit → ≥ warn; coverage from stage completeness; overrides named (FR-5.3, FR-5.4, FR-7.2)
+- [x] `rules.yaml` + `rules.py`: blocking rules and warning rules with fixed reason strings (FR-5.1)
+- [x] `scoring.py`: `Verdict` assembly — blocking hit → block; warning hit → ≥ warn; coverage from stage completeness; overrides named (FR-5.3, FR-5.4, FR-7.2)
 - [ ] Data: download Datadog archive (local only, never committed, never executed); fetch the fetchable subset of OpenSSF reports and record the count; benign sample stratified by band from the frozen snapshot plus a random band beyond top-5,000
 - [ ] `data/manifest.csv`: name, version, artifact, sha256, label, source, campaign group, band, split; payload dedup by normalised-source hash; manual review of 50 benign samples
 - [ ] Batch runner: static pipeline over the corpus locally, results appended to the manifest; nothing in CI
