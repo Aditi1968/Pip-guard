@@ -167,7 +167,7 @@ def test_incomplete_trace_is_incomplete(c: Completeness) -> None:
     v = run(static(**HOOK), trace(c, completeness_reason="killed | after `90s`"))
     assert v.level is Level.INCOMPLETE
     assert any(c.value in r for r in v.reasons)
-    assert all("|" not in r and "`" not in r for r in v.reasons)
+    assert all("\n" not in r for r in v.reasons)
 
 
 def test_incomplete_with_blocking_hit_is_block() -> None:
@@ -314,7 +314,7 @@ def test_invariants(
 
 def test_error_verdict() -> None:
     v = error_verdict("pkg==1", SPEC, "hash mismatch\n| `x`", scanner_version="t")
-    assert v.level is Level.ERROR and v.reasons == ["hash mismatch &#124; &#96;x&#96;"]
+    assert v.level is Level.ERROR and v.reasons == ["hash mismatch | `x`"]
     assert v.coverage.fetch is StageStatus.NOT_RUN
     cov = Coverage(fetch=StageStatus.FAILED)
     assert error_verdict("x", None, "", coverage=cov).reasons == ["scan failed"]
@@ -330,7 +330,7 @@ def test_unsupported_verdict() -> None:
     )
     v = unsupported_verdict(ch)
     assert v.level is Level.WARN and v.spec is None and v.raw_spec == "requests>=2"
-    assert v.reasons == ["not an exact pin (&gt;=): not scanned"]
+    assert v.reasons == ["not an exact pin (>=): not scanned"]
     pinned = DependencyChange(raw="a==1", source_file="r", kind=ChangeKind.ADDED, spec=SPEC)
     with pytest.raises(ValueError):
         unsupported_verdict(pinned)

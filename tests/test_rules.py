@@ -1,4 +1,5 @@
-from datetime import date
+import unicodedata
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -16,13 +17,17 @@ from pipguard.models import (
     CredentialRead,
     FileWrite,
     InstallIndicators,
+    Level,
     PackageMetadata,
     PackageSpec,
+    ScanReport,
     StaticFeatures,
     SubprocessCall,
     SuspiciousCounts,
     TyposquatResult,
+    Verdict,
 )
+from pipguard.report import render_summary
 from pipguard.rules import (
     EVIDENCE_KEYS,
     build_inputs,
@@ -199,14 +204,14 @@ def test_ipv6_endpoint_and_missing_evidence() -> None:
     assert render("x {first_ip} {susp_total}", {"susp_total": 2.5}, {}) == "x unknown 2.50"
 
 
-def test_hostile_values_are_escaped() -> None:
+def test_hostile_values_are_one_line() -> None:
     tr = trace(
         subprocesses=[SubprocessCall(step="install", argv=["sh", "-c", "a|b\n`rm` <x> [l](u) @me"])]
     )
     hits = evaluate(RULES, *build_inputs(static(), tr))
     reason = next(h.reason for h in hits if h.rule_id == "W_SUSPICIOUS_SUBPROCESS")
-    for bad in "|`\n<>[]@":
-        assert bad not in reason
+    # Plain text on one line; report.py escapes Markdown once, at render time.
+    assert "\n" not in reason and "a|b" in reason
 
 
 def test_safe_text_caps_length() -> None:
@@ -216,12 +221,10 @@ def test_safe_text_caps_length() -> None:
 
 
 @given(st.text())
-def test_safe_text_never_leaks_markdown(value: str) -> None:
+def test_safe_text_is_one_bounded_line(value: str) -> None:
     out = safe_text(value)
-    for bad in "|`\n\r<>[]@\\":
-        assert bad not in out
-    # Every `&` starts one of our entities, so the result never decodes to raw markup.
-    assert out.count("&") == sum(out.count(e) for e in ("&amp;", "&#", "&lt;", "&gt;"))
+    assert not any(unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") for ch in out)
+    assert len(out) <= 121
     assert len(value) <= 120 or out.endswith("…")
 
 
@@ -232,9 +235,25 @@ def test_hostile_trace_never_breaks_table(argv: list[str], path: str) -> None:
         credential_reads=[CredentialRead(step="import", path=path)],
         writes_outside_allowed=[FileWrite(step="install", path=path)],
     )
-    for h in evaluate(RULES, *build_inputs(static(), tr)):
-        for bad in "|`\n<>":
-            assert bad not in h.reason
+    hits = evaluate(RULES, *build_inputs(static(), tr))
+    assert all("\n" not in h.reason and "\r" not in h.reason for h in hits)
+    # The rendering boundary keeps the table shape whatever the reasons contain.
+    v = Verdict(
+        spec=None,
+        raw_spec="p==1",
+        level=Level.WARN,
+        reasons=[h.reason for h in hits] or ["x"],
+        scanner_version="t",
+        model_version="m",
+    )
+    report = ScanReport(
+        scanner_version="t",
+        correlation_id="c",
+        generated_at=datetime(2026, 11, 2, tzinfo=UTC),
+        verdicts=[v],
+    )
+    row = next(line for line in render_summary(report).splitlines() if "p==1" in line)
+    assert row.count("|") == 6
 
 
 # ---------------------------------------------------------------- schema / loading

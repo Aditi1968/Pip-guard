@@ -45,34 +45,21 @@ EVIDENCE_KEYS = [
 
 SAFE_TEXT_LIMIT = 120
 
-# HTML entities rather than backslash escapes: they survive every Markdown renderer and
-# leave no raw table/code/HTML/link/mention metacharacter behind. `&` goes first.
-_ESCAPES = {
-    "&": "&amp;",
-    "|": "&#124;",
-    "`": "&#96;",
-    "<": "&lt;",
-    ">": "&gt;",
-    "[": "&#91;",
-    "]": "&#93;",
-    "@": "&#64;",
-    "\\": "&#92;",
-}
-
 
 def safe_text(value: object, limit: int = SAFE_TEXT_LIMIT) -> str:
-    """Untrusted value -> one short line that cannot break a Markdown table or inject markup.
+    """Untrusted value -> one short plain-text line.
 
-    Control/format characters (newlines, bidi overrides, zero-width) become spaces, the text
-    is capped at ``limit`` characters (plus an ellipsis), then Markdown/HTML metacharacters
-    are replaced by entities.
+    Control/format characters (newlines, bidi overrides, zero-width) become spaces and the
+    text is capped at ``limit`` characters (plus an ellipsis). Markdown/HTML escaping is NOT
+    done here: reasons stay readable in the JSON report, and ``report.py`` escapes once, at
+    the rendering boundary, so nothing is double-escaped.
     """
     text = "".join(
         " " if unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") else ch for ch in str(value)
     )
     if len(text) > limit:
         text = text[:limit] + "…"
-    return "".join(_ESCAPES.get(ch, ch) for ch in text)
+    return text
 
 
 # ---------------------------------------------------------------- schema
