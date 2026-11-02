@@ -72,6 +72,13 @@ Wrap `zipfile`/`tarfile`. Reject entries whose resolved path leaves the extracti
 ### static.py
 `ast` over every `.py` (syntax errors recorded, not fatal). Indicators are reported as present/absent and are called *suspicious indicators*, never proof. Install-time indicators (`cmdclass`, overridden install commands, `.pth` import lines, PEP 517 backend in sdist) are static presence only. Typosquat: PEP 503-normalise, Damerau-Levenshtein via `rapidfuzz` against a frozen dated snapshot of the top 5,000 names.
 
+Implementation choices (all in `static.py` as module constants with justifying comments):
+- Files over 5 MB are not read. An oversize `.py` file, an undecodable or pathologically nested `.py` file, and a malformed sdist `pyproject.toml` all count in `syntax_error_count` (the contract has no separate field). Only a missing or unreadable directory raises `PipGuardError`.
+- Call targets are resolved through import aliases collected module-wide; aliases created by assignment (`d = base64.b64decode`) are not followed. `getattr(obj, "<literal>")` counts when the literal names a tracked call. All base64 decoders share the `b64decode` counter. A literal `__import__("ctypes")` counts as a ctypes import.
+- FR-3.7 counts names reached at module top level (including module-level `if`/`try` and class bodies) or in install-hook code: all of `setup.py`, `.pth` import lines, and bodies of classes overriding `install`/`develop`/`egg_info`. `ssl`, `pathlib`, `os.path` and `tempfile` are excluded as too common to carry signal.
+- Raw IPs are valid IP literals except loopback and unspecified. Private ranges are kept, and a version string like `1.2.3.4` counts. Scheme-less domains count only with a TLD from a short list that excludes file-extension TLDs (`py`, `sh`, `cc`). Hosts inside URLs always count. Lists are deduplicated and capped at 50 entries of 200 characters.
+- Typosquat snapshot: `data/top-pypi-5000.json` (hugovk/top-pypi-packages, `last_update` date). Candidates within distance 2 are computed with `rapidfuzz.process.extract`. A candidate that fires is preferred over a nearer one that does not.
+
 ### sandbox.py and trace.py
 Image: slim Python + strace, non-root, pinned base digest. Run flags: `--network none --read-only --tmpfs /tmp --tmpfs /sandbox/site-packages --tmpfs <pip cache> --cap-drop ALL --security-opt no-new-privileges --memory 1g --pids-limit 256`, no bind mounts, no Docker socket. Fake credential **files** (`~/.aws/credentials`, `~/.ssh/id_rsa`, `~/.netrc`, `.env`) with realistic formats and invalid values; the word "fake" lives in `sandbox/manifest.json`, never in the values.
 

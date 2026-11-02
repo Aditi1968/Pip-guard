@@ -1,0 +1,1 @@
+MESSAGE = "The quick brown fox jumps over the lazy dog again and again."
