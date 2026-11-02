@@ -13,8 +13,8 @@ Goal: "run tests" and "CI is green" are habits from day one, and we know whether
 - [ ] `models.py` with `PackageSpec`, `Artifact`, `Verdict` (levels allow/warn/block/error/incomplete; `coverage` field) and `schema_version`
 - [ ] One passing test; `pre-commit` with ruff + pyright
 - [ ] `.github/workflows/ci.yml`: lint, types, tests on push and PR; `permissions: contents: read`
-- [ ] `sandbox/sandbox.Dockerfile`: slim Python pinned by digest + strace, non-root user
-- [ ] **Spike:** run `strace -f` inside the container on `ubuntu-latest` with `--cap-drop ALL --security-opt no-new-privileges --network none --read-only` + tmpfs, non-root. Record result and exact flags in `docs/DESIGN.md` → "Week-1 spike"
+- [x] `sandbox/sandbox.Dockerfile`: slim Python pinned by digest + strace, non-root user
+- [x] **Spike:** run `strace -f` inside the container on `ubuntu-latest` with `--cap-drop ALL --security-opt no-new-privileges --network none --read-only` + tmpfs, non-root. Record result and exact flags in `docs/DESIGN.md` → "Week-1 spike"
 - [ ] `README.md`: one paragraph, "status: in progress", limitations placeholder
 - [ ] `docs/COSTS.md` started: "Phase 0 — ₹0; free tiers touched: GitHub Actions (public repo)"
 

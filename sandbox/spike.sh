@@ -26,10 +26,15 @@ try:
 except OSError:
     pass
 PY
-PYTHON="$(command -v python3 || command -v python)"
-"$PYTHON" "$(dirname "$0")/../scripts/make_wheel.py" "$WORK/in" spikepkg 0.0.1 "$WORK/src" >/dev/null
+# Override with PYTHON="uv run python" where python3 is a store stub (Windows).
+PYTHON="${PYTHON:-python3}"
+$PYTHON "$(dirname "$0")/../scripts/make_wheel.py" "$WORK/in" spikepkg 0.0.1 "$WORK/src" >/dev/null
 
 # FR-4.7 exactly. tmpfs mounts keep Docker's default noexec,nosuid,nodev.
+# Docker's default seccomp profile is passed explicitly (moby v27.5.1, sandbox/
+# seccomp-default.json) so a daemon configured with seccomp=unconfined cannot silently
+# drop it. Docker Desktop on WSL2 was observed running unconfined (2026-11-02).
+SECCOMP="$(dirname "$0")/seccomp-default.json"
 FLAGS=(
   --rm -i
   --network none
@@ -39,6 +44,7 @@ FLAGS=(
   --tmpfs /home/sandbox/.cache:rw,size=256m,mode=1777
   --cap-drop ALL
   --security-opt no-new-privileges
+  --security-opt "seccomp=$SECCOMP"
   --memory 1g
   --pids-limit 256
   --user 10001:10001

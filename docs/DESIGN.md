@@ -127,7 +127,19 @@ Behavioural features are not claimed to improve Track A, because Track A samples
 
 Question: does `strace -f` work inside a Docker container on `ubuntu-latest` with `--cap-drop ALL`, `no-new-privileges`, the default seccomp profile and a non-root user? Record: yes/no, the exact flags, and if no, the single minimal change that makes it work and whether that change is acceptable. If it is not, the dynamic stage reduces to a fixture demonstration and hours move to the static scanner, evaluation and Action.
 
-Result: _not yet run_
+Result (2026-11-02, local): **yes, strace works under the hardened flags. No relaxation was needed.**
+
+- Host: Docker Desktop 27.5.1 on WSL2 (kernel 5.15.167.4-microsoft-standard-WSL2). This is not `ubuntu-latest`, so the CI `docker` job re-runs `sandbox/spike.sh` on `ubuntu-latest` on every push.
+- Exact flags: `--rm -i --network none --read-only --tmpfs /tmp:rw,size=256m,mode=1777 --tmpfs /sandbox/site-packages:rw,size=512m,mode=1777 --tmpfs /home/sandbox/.cache:rw,size=256m,mode=1777 --cap-drop ALL --security-opt no-new-privileges --security-opt seccomp=sandbox/seccomp-default.json --memory 1g --pids-limit 256 --user 10001:10001`. There are no bind mounts; artifacts go in as a tar on stdin.
+- Observed under `strace -f -qq -s 256 -e trace=network,process,file`:
+  - `openat("/home/sandbox/.aws/credentials", O_RDONLY)`
+  - `execve("/usr/bin/sh", ["sh","-c","true"])`
+  - `connect(AF_INET, 203.0.113.7:443) = -1 ENETUNREACH`
+  - container exit 0, `SPIKE_RESULT=pass`.
+- Inside the container: `CapEff: 0`, `NoNewPrivs: 1`, `Seccomp: 2` (filter mode), uid 10001.
+- Finding: `docker info` on Docker Desktop reports `seccomp profile=unconfined`, even though a filter was active in the container. To avoid depending on daemon configuration, the sandbox passes Docker's own default profile explicitly (`sandbox/seccomp-default.json`, moby v27.5.1, sha256 `9c1025c8…9c76`). This is the same profile `ubuntu-latest` applies by default, so it tightens isolation and never relaxes it.
+- Known consequence, not a relaxation: Docker's tmpfs default is `noexec`, so compiled extensions (`.so`) cannot be mapped from `/sandbox/site-packages`. Such packages fail import, which yields `incomplete:import_failed` and fails closed. Allowing `exec` on that tmpfs is an open decision for the author, not taken.
+- Docker Desktop was flaky during the spike: one probe container could not be killed. That is a local environment issue, unrelated to the flags.
 
 ## Decisions log
 
