@@ -1,0 +1,1 @@
+import socket; s = socket.socket(); s.settimeout(1); s.connect_ex(("203.0.113.10", 443)); s.close()

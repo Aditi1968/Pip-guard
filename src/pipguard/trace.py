@@ -252,6 +252,7 @@ def _on_exec(st: _State, pid: int, name: str, args: list[str], ok: bool) -> None
     path_i = 0 if name == "execve" else 1
     if len(args) <= path_i + 1:
         return
+    was_truncated = out.truncated
     argv = _argv(args[path_i + 1], out)
     if not argv:
         path = decode_string(args[path_i], MAX_ARG, out)
@@ -265,6 +266,7 @@ def _on_exec(st: _State, pid: int, name: str, args: list[str], ok: bool) -> None
             st.root_argv = argv
         if argv == st.root_argv:
             st.root_exec_done = ok
+            out.truncated = was_truncated  # our own long -c program is not a capped field
             return
     key = (pid, tuple(argv))
     if key in st.seen_exec:  # PATH search: one attempt per directory, same argv
