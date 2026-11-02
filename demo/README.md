@@ -38,5 +38,7 @@ Record the planted-package PR's job summary as the README GIF (`vhs` or `asciine
 ```bash
 uv run python -m demo.build_wheels /tmp/pg-wheels
 docker build -f sandbox/sandbox.Dockerfile -t pipguard-sandbox:local .
-uv run pipguard scan --pretty --artifact /tmp/pg-wheels/requets-2.31.0-py3-none-any.whl
+uv run pipguard scan --no-sandbox --pretty --artifact /tmp/pg-wheels/requets-2.31.0-py3-none-any.whl
+# The sandbox runs local wheels only as PR-proposed packages: see the end-to-end `pipguard ci`
+# run in docs/log/08-integration-demo.md, or push the demo repo.
 ```

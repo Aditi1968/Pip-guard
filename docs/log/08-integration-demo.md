@@ -75,6 +75,18 @@ Not done:
 
 To run it: push pip guard to a public GitHub repo, note a commit SHA, `gh auth login`, then `bash demo/make_prs.sh <you>/pipguard-demo <you>/pip-guard <sha>`.
 
+## PRD review and fixes (2026-11-03)
+
+A fresh read-only reviewer checked the merged repo against every P0 FR. On the paths it traced end to end, it found no hard-rule violation and no fail-open path. It found one MUST-FIX and several SHOULD-FIXes, now fixed:
+- **Sandbox coverage could lie.** Modules came from the wheel's own `top_level.txt`, so a wheel listing a stdlib module could come back `complete` without its code ever running. Modules now come from the files on disk, and each import's origin is verified (log 04).
+- **Credential-read evasions and UDP sends** were added to the parser (log 04).
+- **The config is read from the base ref**, so a PR cannot loosen its own gate (log 06).
+
+Left for the author to decide (see the final report):
+- `noexec` tmpfs makes every package with compiled extensions `incomplete`.
+- Requirements-file parsing differs from pip on encodings and option lines.
+- Publishing the sandbox image to GHCR with a recorded digest is not done; the action builds the image per run.
+
 ## Limitations and known gaps
 
 - The planted package's behaviour is at import, not install; the PRD's use case 1 describes a connect "during pip install", which a wheel cannot do. The demo shows the realistic case (import-time payload).

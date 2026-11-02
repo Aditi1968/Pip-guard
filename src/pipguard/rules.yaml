@@ -9,7 +9,8 @@
 #   Feature names come from features.FEATURE_NAMES plus rules.EXTRA_FEATURE_NAMES.
 #   Nothing is evaluated as code.
 # Reasons: fixed templates. {placeholders} name a feature or an evidence key
-#   (rules.EVIDENCE_KEYS). Every value is length-capped and Markdown-escaped before it goes in.
+#   (rules.EVIDENCE_KEYS). Every value is length-capped and stripped of control characters
+#   (rules.safe_text); Markdown escaping happens once, at render time, in report.py.
 
 blocking:
   - id: B_CONNECT_INSTALL

@@ -87,7 +87,8 @@ uv sync
 uv run pipguard scan --no-sandbox --pretty requests==2.31.0      # static only
 docker build -f sandbox/sandbox.Dockerfile -t pipguard-sandbox:local .
 uv run pipguard scan requests==2.31.0                             # static + sandbox, JSON
-uv run pipguard scan --artifact path/to/pkg-1.0-py3-none-any.whl  # a local wheel
+uv run pipguard scan --no-sandbox --artifact path/to/pkg-1.0-py3-none-any.whl  # a local wheel
+# (--artifact is static-only by policy, FR-4.10: without --no-sandbox the verdict is incomplete)
 uv run pipguard explain requests==2.31.0                          # trace, features, rule hits
 ```
 

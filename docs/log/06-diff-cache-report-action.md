@@ -100,6 +100,10 @@ Writes (`cache.py:141-191`) are skipped when `read_only` (fork PRs), for `error`
 | Edit only the bot's own marked comment | Another user's comment containing the marker must not be overwritten | Matching on the marker alone |
 | Comment skipped on forks, summary says so | Fork PRs get a read-only token; `pull_request_target` would give write access to untrusted code | `pull_request_target` |
 
+## The config comes from the base ref (review fix)
+
+`pipguard ci` reads `pipguard.toml` at `--base` with `git show`, not from the PR checkout (`cli._ci_config`). Otherwise a PR could set `watched_files = []`, allowlist its own package or raise thresholds, and pass the very check it is meant to face. When the PR changes the file, the summary says so and that the base version was used. An absolute `--config` path outside the repo is the operator's explicit choice and is used as given.
+
 ## Limitations and known gaps
 
 - No lockfiles, Poetry tables, `requirements*.txt` globs, extras or markers (FR-1.4, FR-1.5 are P2).

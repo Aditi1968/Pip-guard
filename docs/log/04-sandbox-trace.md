@@ -6,7 +6,7 @@
 
 | FR | Requirement | Where |
 | --- | --- | --- |
-| FR-4.1 | Dependencies preinstalled untraced; target installed `--no-deps` and imported, both traced; modules from `top_level.txt`/`RECORD`; no module or failed import is `incomplete` | `runner.py:164-210`, `runner.py:141-161` |
+| FR-4.1 | Dependencies preinstalled untraced; target installed `--no-deps` and imported, both traced; modules found on disk in the install dir (not from the wheel's own metadata), each import verified to come from there; no module or failed import is `incomplete` | `runner.py:164-210`, `runner.py:141-161` |
 | FR-4.2 | Offline installs from local wheels (`--no-index`) | `runner.py:177-190` |
 | FR-4.3 | Fake credential files observed via `openat` | `trace.py:246-247`, `sandbox/manifest.json` |
 | FR-4.5 | `BehaviorTrace`: outside writes, credential reads, subprocess argv, `connect()` family/address/port, exit codes, step times, completeness | `trace.py`, `sandbox.py:356-373` |
@@ -36,7 +36,7 @@ The container's command is `python -I /opt/pipguard/runner.py <install_s> <impor
 2. **Untar** stdin into `/tmp/in` with `filter="data"`; exactly one target wheel is required.
 3. **Untraced dependency preinstall** (`runner.py:177-188`): `python -I -B -m pip install --no-deps --no-index --find-links /tmp/in/deps --target /sandbox/deps <dep wheels>`. `--no-deps` because `fetch.py` already resolved the closure. Failure → envelope error "dependency preinstall failed" → `incomplete:sandbox_error`.
 4. **Traced install** (`runner.py:189-191`): `strace -f -qq -s 256 -e trace=network,process,file -o /dev/stderr python -I -B -c <PIP_PROGRAM> install --no-deps --no-index --target /sandbox/site-packages <wheel>`.
-5. **Module list** (`runner.py:141-161`): from `top_level.txt`, else from `RECORD` (top-level `*.py` files and package directories, excluding `*.dist-info`, `*.data`, `__pycache__`), identifiers only, at most 50.
+5. **Module list** (`runner.modules`): read from the filesystem under `/sandbox/site-packages`. It includes top-level `*.py` files and directories that contain any `.py`, and excludes `*.dist-info`, `*.data`, `*.egg-info`, `__pycache__` and `bin`. Identifiers only, at most 50. The import program then checks that each module's `__file__`/`__path__` resolves inside `/sandbox/site-packages`; if not, the result is `NotFromTarget`, which gives `incomplete:import_failed`. The first version trusted `top_level.txt`. The review showed that a wheel listing `json` there would import the stdlib, and an unexecuted package would come back `complete`.
 6. **Traced import** (`runner.py:73-84`, `197-198`): one interpreter appends `/sandbox/deps` to `sys.path`, calls `site.addsitedir('/sandbox/site-packages')`, then imports each module and writes `{module: "ok" | ExceptionName}` to `/tmp/import_results.json`.
 7. **Envelope** in a `finally`, so the host always gets one, even after an unexpected exception (reported as `runner error: <type>`).
 
@@ -92,6 +92,13 @@ Not covered, accepted for v1 and documented in `docs/DESIGN.md`:
 
 All three need a tracer outside the container (eBPF, P2) or a second uid, which the dropped capabilities rule out.
 
+## Hardening added after the PRD review (2026-11-03)
+
+- **Path aliases:** `//home/...` and `/proc/self/root/home/...` reach the same file but did not match the credential list. `trace._canon` collapses both, with a bounded loop for nested `/proc/<pid>/root` prefixes.
+- **dirfd-relative opens:** `openat(fd, ".netrc")` cannot be resolved from a trace, so a seeded credential file's *name* counts as a read.
+- **Links:** `symlink`/`link`/`rename` with a credential file as the source counts as a credential read. Symlinks cannot be resolved from a trace, so creating the alias is the signal.
+- **UDP:** `sendto`/`sendmsg`/`sendmmsg` with an explicit destination are recorded as connect attempts. On a network-less container both mean "tried to reach this address", and a UDP send never calls `connect()`.
+
 ## Limitations and known gaps
 
 - Docker shares the host kernel; not escape-proof.
@@ -106,7 +113,7 @@ All three need a tracer outside the container (eBPF, P2) or a second uid, which 
 ## How it is tested
 
 - `tests/test_trace.py` (unit, no Docker): sample observations; root PATH search excluded but a later root exec reported; `[pid N]` prefix and `execveat`; open variants and allowed prefixes; Unix and other connects; escapes and control characters; `"..."...` truncation; field caps; observation cap and dedup; unfinished-at-end counted and orphan `resumed` counted as garbage; line and input caps; and three hypothesis tests: arbitrary text never raises, structured garbage never raises, adversarial 1 MB lines are fast.
-- `tests/test_sandbox.py` (unit, Docker faked): the argv contains every hardening flag and nothing forbidden (no `-v`, no `--privileged`, no socket); policy for all origins including dependency paths; policy denial and no-wheel start no container; complete run merges steps and records the digest; fresh container name per run; every incomplete state; import failure keeps observations and sanitises the exception name; trace over the package cap; timeout kills and removes; missing Docker CLI, missing image, garbled envelope, oversize output; `docker rm` runs even on unexpected exceptions; `DockerRunner` caps stdout and feeds stdin; runner programs compile; module discovery from `top_level.txt` then `RECORD`.
+- `tests/test_sandbox.py` (unit, Docker faked): the argv contains every hardening flag and nothing forbidden (no `-v`, no `--privileged`, no socket); policy for all origins including dependency paths; policy denial and no-wheel start no container; complete run merges steps and records the digest; fresh container name per run; every incomplete state; import failure keeps observations and sanitises the exception name; trace over the package cap; timeout kills and removes; missing Docker CLI, missing image, garbled envelope, oversize output; `docker rm` runs even on unexpected exceptions; `DockerRunner` caps stdout and feeds stdin; runner programs compile; module discovery from installed files, ignoring a lying `top_level.txt`; the import program's origin check.
 - `tests/test_behaviour_fixtures.py` (15 Docker tests, Track B, pass locally): five suspicious/benign pairs (`connect_import`, `credential_exfil`, `pth_import`, `obfuscated_exec`, `write_outside`), each suspicious one observed with no install-step observations and each benign one quiet; a real `pip install` trace is clean; the `noisy_dependency` attribution test; import timeout; import failure; no container left behind.
 
 ## Interview questions
