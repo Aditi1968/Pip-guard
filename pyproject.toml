@@ -50,7 +50,7 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-extend-exclude = ["tests/fixtures"]
+extend-exclude = ["tests/fixtures", "demo/planted"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
@@ -62,8 +62,8 @@ ignore = ["S101", "S603", "S607"]
 "scripts/**" = ["S"]
 
 [tool.pyright]
-include = ["src", "tests", "scripts"]
-exclude = ["tests/fixtures", "**/.venv"]
+include = ["src", "tests", "scripts", "demo"]
+exclude = ["tests/fixtures", "demo/planted", "**/.venv"]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
 venvPath = "."

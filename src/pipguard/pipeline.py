@@ -74,8 +74,11 @@ def _refs(pkg: FetchedPackage) -> list[ArtifactRef]:
     return [ArtifactRef(filename=a.filename, sha256=a.sha256, kind=a.kind) for a in pkg.artifacts]
 
 
-def _from_local_index(spec: PackageSpec, index: Path, dest: Path) -> FetchedPackage:
-    """Find ``spec``'s wheel in ``index``. Dependencies are not resolved.
+def _from_local_index(spec: PackageSpec, index: Path, dest: Path) -> FetchedPackage | None:
+    """``spec``'s wheel from ``index``, or None if the index does not have it.
+
+    Wheels in the index take precedence; everything else is fetched from PyPI as usual, so
+    the demo's planted package comes from the repo while real bumps still hit PyPI.
 
     ponytail: demo-only resolver, wheels with no Requires-Dist; resolve deps from the same
     directory if a demo package ever needs them.
@@ -88,7 +91,7 @@ def _from_local_index(spec: PackageSpec, index: Path, dest: Path) -> FetchedPack
             if pkg.declared_requirements:
                 raise FetchError(f"{spec}: local index does not resolve dependencies")
             return pkg
-    raise FetchError(f"{spec}: no wheel in local index {index.name!r}")
+    return None
 
 
 def _sandbox(pkg: FetchedPackage, opts: ScanOptions) -> BehaviorTrace:
@@ -197,12 +200,12 @@ def scan_spec(
     raw = raw or str(spec)
     t = time.monotonic()
     try:
-        if opts.fetcher is not None:
-            pkg = opts.fetcher(spec, workdir / "download")
-        elif opts.local_index is not None:
+        pkg = None
+        if opts.local_index is not None:
             pkg = _from_local_index(spec, opts.local_index, workdir / "download")
-        else:
-            pkg = fetch(spec, workdir / "download")
+        if pkg is None:
+            fetcher = opts.fetcher or fetch
+            pkg = fetcher(spec, workdir / "download")
     except FetchError as exc:
         cov = Coverage(fetch=StageStatus.FAILED, not_evaluated=["package (download failed)"])
         return ScanResult(

@@ -180,10 +180,16 @@ def test_scan_changes_reports_unsupported_and_scanned(tmp_path: Path) -> None:
 def test_local_index(tmp_path: Path) -> None:
     index = tmp_path / "index"
     build_wheel(index, "quietpkg", "1.0", QUIET)
-    opts = ScanOptions(config=Config(), model=RULES_ONLY, sandbox=False, local_index=index)
+
+    def pypi(spec: PackageSpec, dest: Path) -> FetchedPackage:
+        raise FetchError("not on PyPI either")
+
+    opts = _opts(tmp_path, local_index=index, fetcher=pypi)
     assert scan_spec(SPEC, opts, tmp_path / "w").verdict.level is Level.ALLOW
+    # Not in the index: falls through to the normal fetch, whose failure is an error.
     missing = scan_spec(PackageSpec(name="quietpkg", version="2.0"), opts, tmp_path / "x")
     assert missing.verdict.level is Level.ERROR
+    assert "not on PyPI either" in missing.verdict.reasons[0]
 
 
 def test_local_index_refuses_dependencies(tmp_path: Path) -> None:

@@ -1,0 +1,6 @@
+# pip guard config for the demo repo (FR-7.2).
+allowlist = []
+
+[timeouts]
+install_s = 90
+import_s = 30  # lowered so the forced-timeout PR finishes quickly

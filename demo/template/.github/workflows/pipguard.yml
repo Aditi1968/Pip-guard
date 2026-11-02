@@ -1,0 +1,23 @@
+name: pip guard
+
+on:
+  pull_request:  # never pull_request_target (PRD: CI trust model)
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write  # only for the same-repo PR comment (FR-6.4)
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      # Replace OWNER and the SHA with your pip guard repo and a pinned commit.
+      # Never add `continue-on-error: true` here: it defeats enforcement.
+      - uses: OWNER/pip-guard/action@PIPGUARD_COMMIT_SHA
+        with:
+          local-index: vendor/wheels  # demo only: planted wheels; everything else from PyPI
