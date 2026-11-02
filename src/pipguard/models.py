@@ -330,6 +330,44 @@ class Thresholds(_Model):
         return self
 
 
+class ModelArtifact(_Model):
+    """A trained scorer, versioned together with its thresholds and data (FR-5.2, FR-5.8).
+
+    Produced by ``scripts/eval/train.py``, loaded by ``scoring.py``. Logistic regression is
+    stored as plain coefficients so inference needs no scikit-learn at runtime.
+    """
+
+    schema_version: int = SCHEMA_VERSION
+    model_version: str
+    kind: Literal["rules", "logreg", "lightgbm"]
+    feature_names: list[str] = Field(default_factory=list)
+    # Feature standardisation applied before the linear model: (x - mean) / scale.
+    feature_means: list[float] = Field(default_factory=list)
+    feature_scales: list[float] = Field(default_factory=list)
+    coefficients: list[float] = Field(default_factory=list)
+    intercept: float = 0.0
+    # Platt scaling on the validation fold; when None the output is labelled "score".
+    platt_a: float | None = None
+    platt_b: float | None = None
+    lightgbm_model: str | None = None  # LightGBM text dump, only if that rung is adopted
+    thresholds: Thresholds = Field(default_factory=Thresholds)
+    training_manifest_sha256: str | None = None
+    typosquat_snapshot_date: date | None = None
+    trained_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def _shapes(self) -> ModelArtifact:
+        if self.kind == "logreg":
+            n = len(self.feature_names)
+            if not n or {
+                len(self.coefficients),
+                len(self.feature_means),
+                len(self.feature_scales),
+            } != {n}:
+                raise ValueError("logreg artifact needs one coefficient/mean/scale per feature")
+        return self
+
+
 class Verdict(_Model):
     """Output of ``scoring.score(...)`` (FR-5.3)."""
 

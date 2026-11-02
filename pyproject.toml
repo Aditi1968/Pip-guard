@@ -23,14 +23,15 @@ dev = [
     "ruff>=0.6",
     "pyright>=1.1.380",
 ]
-# Evaluation only; runs locally, never in CI (PRD: compute plan).
+# Training/eval scripts; installed by default so their unit tests run. The corpus
+# evaluation itself runs locally, never in CI (PRD: compute plan).
 eval = [
     "scikit-learn>=1.5",
     "lightgbm>=4.5",
 ]
 
 [tool.uv]
-default-groups = ["dev"]
+default-groups = ["dev", "eval"]
 
 [build-system]
 requires = ["hatchling"]
