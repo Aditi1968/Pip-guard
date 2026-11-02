@@ -66,6 +66,8 @@ GitHub PR (requirements.txt / pyproject.toml, pinned) --> pip guard Action (read
 ### fetch.py
 PyPI JSON API → pick the wheel matching the runner's Python/platform tags (and the sdist for static inspection). Verify SHA-256 against PyPI; mismatch → `error`. Read declared dependencies from the wheel's METADATA and download their wheels for the untraced preinstall. Record every artifact's identity.
 
+Wheel choice targets the *sandbox* (CPython 3.12, python:3.12-slim-bookworm, glibc 2.36), never the host: `py3-none-any` first, then manylinux x86_64 with the highest glibc ≤ 2.36 (cp312 ABI over abi3), then `linux_x86_64`. musllinux is never picked (the image is glibc). No compatible wheel → sdist only, and the sandbox reports `incomplete:no_wheel`. Declared deps: markers evaluated against the sandbox environment, extras never installed, non-pinned specifiers resolved to the newest stable non-yanked release with a sandbox wheel via a minimal PEP 440 subset (no `packaging`); closure capped at 50 wheels / depth 10. Unresolvable requirements (URL deps, unknown markers, sdist-only deps) are skipped with a log line; the sandbox import then fails closed.
+
 ### extract.py
 Wrap `zipfile`/`tarfile`. Reject entries whose resolved path leaves the extraction directory, all symlinks and hardlinks, and archives over 100 MB compressed / 500 MB extracted / 20,000 files. Use `tarfile`'s `filter='data'` where available. Tests include traversal, link and zip-bomb fixtures.
 
