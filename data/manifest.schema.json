@@ -1,0 +1,120 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "artifact_filename": {
+      "default": "",
+      "title": "Artifact Filename",
+      "type": "string"
+    },
+    "campaign_group": {
+      "default": "",
+      "title": "Campaign Group",
+      "type": "string"
+    },
+    "fold": {
+      "anyOf": [
+        {
+          "maximum": 4,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Fold"
+    },
+    "label": {
+      "enum": [
+        "malicious",
+        "benign"
+      ],
+      "title": "Label",
+      "type": "string"
+    },
+    "manual_review": {
+      "anyOf": [
+        {
+          "enum": [
+            "unreviewed",
+            "ok",
+            "suspicious"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Manual Review"
+    },
+    "name": {
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "normalized_source_sha256": {
+      "default": "",
+      "pattern": "^([0-9a-f]{64})?$",
+      "title": "Normalized Source Sha256",
+      "type": "string"
+    },
+    "notes": {
+      "default": "",
+      "title": "Notes",
+      "type": "string"
+    },
+    "popularity_band": {
+      "default": "n/a",
+      "enum": [
+        "top-100",
+        "101-1000",
+        "1001-5000",
+        "random",
+        "n/a"
+      ],
+      "title": "Popularity Band",
+      "type": "string"
+    },
+    "sha256": {
+      "default": "",
+      "pattern": "^([0-9a-f]{64})?$",
+      "title": "Sha256",
+      "type": "string"
+    },
+    "source": {
+      "enum": [
+        "datadog",
+        "openssf",
+        "top-pypi",
+        "random-pypi"
+      ],
+      "title": "Source",
+      "type": "string"
+    },
+    "split": {
+      "default": "excluded",
+      "enum": [
+        "train",
+        "holdout",
+        "excluded"
+      ],
+      "title": "Split",
+      "type": "string"
+    },
+    "version": {
+      "default": "",
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "label",
+    "source"
+  ],
+  "title": "ManifestRow",
+  "type": "object"
+}
