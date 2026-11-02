@@ -215,6 +215,12 @@ def typosquat(name: str, top: TopPackages) -> TyposquatResult:
     closer one; ties break on distance, then rank.
     """
     me = normalize_name(name)
+    if me in top.rank:
+        # A package that is itself in the popularity snapshot is not a typosquat of another
+        # popular package (six is 2 edits from pip; both are top-100 projects). Attackers'
+        # packages are by construction not popular, so this costs no recall on the target
+        # population. No distance is reported, so no rule or model feature can fire on it.
+        return TyposquatResult(snapshot_date=top.snapshot_date)
     hits = process.extract(
         me,
         top.names,

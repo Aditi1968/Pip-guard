@@ -421,3 +421,12 @@ def test_lan_and_link_local_ips_are_not_raw_ip_indicators() -> None:
         assert not _is_raw_ip(local), local
     for routable in ("45.33.12.9", "203.0.113.7", "2001:db8::1", "8.8.8.8"):
         assert _is_raw_ip(routable), routable
+
+
+def test_popular_package_is_not_a_typosquat_of_another() -> None:
+    from pipguard.static import TopPackages, typosquat
+
+    top = TopPackages(names=("pip", "requests", "six"), snapshot_date=date(2026, 11, 1))
+    r = typosquat("six", top)
+    assert r.distance is None and not r.fired
+    assert typosquat("requets", top).fired

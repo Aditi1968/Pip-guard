@@ -289,7 +289,7 @@ def unsupported_verdict(
         spec=None,
         raw_spec=change.raw,
         level=Level.WARN,
-        reasons=[f"not an exact pin ({safe_text(change.unsupported_reason)}): not scanned"],
+        reasons=[f"not scanned: {safe_text(change.unsupported_reason)}"],
         coverage=Coverage(not_evaluated=["package (not an exact pin, not scanned)"]),
         scanner_version=scanner_version,
         model_version=model_version,

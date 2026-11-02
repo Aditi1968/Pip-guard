@@ -330,7 +330,7 @@ def test_unsupported_verdict() -> None:
     )
     v = unsupported_verdict(ch)
     assert v.level is Level.WARN and v.spec is None and v.raw_spec == "requests>=2"
-    assert v.reasons == ["not an exact pin (>=): not scanned"]
+    assert v.reasons == ["not scanned: >="]
     pinned = DependencyChange(raw="a==1", source_file="r", kind=ChangeKind.ADDED, spec=SPEC)
     with pytest.raises(ValueError):
         unsupported_verdict(pinned)
