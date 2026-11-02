@@ -92,3 +92,10 @@ def test_cache_save_and_comment_skip_forks(action: dict[str, Any]) -> None:
     comment_if = _step(action, "Post or update PR comment")["if"]
     assert "head.repo.full_name == github.repository" in comment_if
     assert "<!-- pipguard-report -->" in _step(action, "Post or update PR comment")["run"]
+
+
+def test_action_runs_locked_source_and_only_edits_own_comment() -> None:
+    text = (Path(__file__).parents[1] / "action" / "action.yml").read_text(encoding="utf-8")
+    assert "uv sync --locked" in text and "uv tool install" not in text
+    assert "github-actions[bot]" in text
+    assert "--local-index" in text

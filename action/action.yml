@@ -9,6 +9,7 @@
 #               [--fail-on-warn]      warn exits 1
 #               [--read-only-cache]   never write the cache (fork PRs, FR-1.3)
 #               [--comment-file PATH] write the PR comment body here
+#               [--local-index DIR]   demo only: wheels from DIR instead of PyPI
 #   exit codes: 0 allow/warn, 1 warn with --fail-on-warn, 2 block, 3 error/incomplete.
 #
 # Consuming workflow requirements (PRD: CI trust model):
@@ -37,6 +38,9 @@ inputs:
   comment:
     description: Post or update one PR comment on same-repository PRs (FR-6.4).
     default: "true"
+  local-index:
+    description: Demo only. Resolve specs from this directory of wheels instead of PyPI.
+    default: ""
 
 runs:
   using: composite
@@ -51,11 +55,13 @@ runs:
       run: echo "fork=$IS_FORK" >> "$GITHUB_OUTPUT"
 
     # Inputs reach scripts only through env, never `${{ }}` inside `run:` (injection).
+    # Run from the action's own checkout with the hash-pinned uv.lock (PRD: supply chain).
+    # Not `uv tool install`: the typosquat snapshot and seccomp profile live in the repo.
     - name: Install pip guard
       shell: bash
       env:
         PYTHON_VERSION: ${{ inputs.python-version }}
-      run: uv tool install --python "$PYTHON_VERSION" "$GITHUB_ACTION_PATH/.."
+      run: uv sync --locked --no-default-groups --python "$PYTHON_VERSION" --project "$GITHUB_ACTION_PATH/.."
 
     # Restored caches are untrusted; cache.py treats anything odd as a miss.
     - name: Restore verdict cache
@@ -77,18 +83,20 @@ runs:
         CONFIG: ${{ inputs.config }}
         FAIL_ON_WARN: ${{ inputs.fail-on-warn }}
         IS_FORK: ${{ steps.ctx.outputs.fork }}
+        LOCAL_INDEX: ${{ inputs.local-index }}
       run: |
         mkdir -p .pipguard-cache
         args=(ci --base "$BASE" --summary "$GITHUB_STEP_SUMMARY"
               --report pipguard-report.json.gz --cache .pipguard-cache/verdicts.sqlite
               --config "$CONFIG" --comment-file "$RUNNER_TEMP/pipguard-comment.md")
         if [ "$FAIL_ON_WARN" = "true" ]; then args+=(--fail-on-warn); fi
+        if [ -n "$LOCAL_INDEX" ]; then args+=(--local-index "$LOCAL_INDEX"); fi
         # Anything but an explicit same-repo answer is treated as a fork: no cache writes.
         if [ "$IS_FORK" != "false" ]; then args+=(--read-only-cache); fi
         # The step shell runs with -e: `|| code=$?` records the code instead of aborting
         # before it is written. The step still exits with it, and the map step decides.
         code=0
-        pipguard "${args[@]}" || code=$?
+        uv run --no-sync --project "$GITHUB_ACTION_PATH/.." pipguard "${args[@]}" || code=$?
         echo "code=$code" >> "$GITHUB_OUTPUT"
         exit "$code"
 
@@ -121,7 +129,7 @@ runs:
         body="$RUNNER_TEMP/pipguard-comment.md"
         if [ ! -s "$body" ]; then echo "no comment body produced"; exit 0; fi
         id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
-          --jq '.[] | select(.body | startswith("<!-- pipguard-report -->")) | .id' | head -n 1) || id=""
+          --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- pipguard-report -->"))) | .id' | head -n 1) || id=""
         if [ -n "$id" ]; then
           gh api -X PATCH "repos/$REPO/issues/comments/$id" -F "body=@$body" >/dev/null \
             || echo "::warning title=pip guard::could not update the PR comment"
