@@ -28,6 +28,7 @@ from typing import Annotated, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from pipguard.errors import SandboxError
 from pipguard.models import (
     BehaviorTrace,
     Completeness,
@@ -145,14 +146,17 @@ def _feed(stdin: io.BufferedWriter, data: bytes) -> None:
 
 def image_digest(image: str, docker: Docker | None = None) -> str:
     """Image ID (``sha256:...``) recorded in the trace and the cache key."""
-    res = (docker or DockerRunner()).run(
-        ["docker", "image", "inspect", "--format", "{{.Id}}", image],
-        input=None,
-        timeout=DOCKER_CALL_TIMEOUT_S,
-    )
+    try:
+        res = (docker or DockerRunner()).run(
+            ["docker", "image", "inspect", "--format", "{{.Id}}", image],
+            input=None,
+            timeout=DOCKER_CALL_TIMEOUT_S,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise SandboxError(f"cannot run docker to inspect {image}: {exc}") from exc
     digest = res.stdout.decode(errors="replace").strip()
     if res.returncode != 0 or not _DIGEST.fullmatch(digest):
-        raise RuntimeError(f"cannot inspect sandbox image {image}")
+        raise SandboxError(f"cannot inspect sandbox image {image}")
     return digest
 
 
@@ -172,7 +176,10 @@ def policy_allows(
     - ``origin == "fixture"``: allowed only when every artifact file (target, sdist,
       dependency wheels) resolves inside ``fixtures_root``. ``origin`` is set by our own
       code, so this ties "fixture" to files we control rather than to a label.
-    - ``origin == "local_artifact"`` (e.g. the archived malware corpus): never.
+    - ``origin == "local_artifact"``: only when the caller marks it as a PR candidate, i.e.
+      a wheel the PR itself ships (the demo's ``--local-index``). ``pipguard scan
+      --artifact`` and the evaluation batch runner never set that flag, so arbitrary local
+      files and the archived malware corpus are never executed.
     """
     if pkg.origin == "pypi":
         return (True, "PR candidate") if pr_candidate else (False, "not proposed by a PR")
@@ -181,6 +188,8 @@ def policy_allows(
         if files and all(_inside(p, fixtures_root) for p in files):
             return True, "pip guard fixture"
         return False, "fixture artifact outside the fixtures directory"
+    if pkg.origin == "local_artifact" and pr_candidate:
+        return True, "wheel proposed by the PR"
     return False, "local artifacts are analysed statically only"
 
 
@@ -291,7 +300,7 @@ def run(
         return result(Completeness.NO_WHEEL, "no wheel for the sandbox platform")
     try:
         digest = image_digest(image, docker)
-    except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+    except SandboxError as exc:
         return result(Completeness.SANDBOX_ERROR, f"sandbox image unavailable: {exc}")
 
     t = config.timeouts

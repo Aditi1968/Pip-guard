@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from pipguard import sandbox
+from pipguard.errors import SandboxError
 from pipguard.models import (
     Artifact,
     Completeness,
@@ -175,7 +176,8 @@ def test_policy(tmp_path: Path) -> None:
     assert policy_allows(pypi, pr_candidate=True, fixtures_root=tmp_path) == (True, "PR candidate")
     assert not policy_allows(pypi, pr_candidate=False, fixtures_root=tmp_path)[0]
     local = inside.model_copy(update={"origin": "local_artifact"})
-    assert not policy_allows(local, pr_candidate=True, fixtures_root=tmp_path)[0]
+    assert not policy_allows(local, pr_candidate=False, fixtures_root=tmp_path)[0]
+    assert policy_allows(local, pr_candidate=True, fixtures_root=tmp_path)[0]
 
 
 def test_fixture_policy_checks_dependency_paths_too(tmp_path: Path) -> None:
@@ -190,7 +192,7 @@ def test_fixture_policy_checks_dependency_paths_too(tmp_path: Path) -> None:
 
 def test_policy_denial_starts_no_container(tmp_path: Path) -> None:
     d = FakeDocker()
-    t = _run(tmp_path, d, pkg=_pkg(tmp_path, origin="local_artifact"), pr_candidate=True)
+    t = _run(tmp_path, d, pkg=_pkg(tmp_path, origin="local_artifact"), pr_candidate=False)
     assert t.completeness is Completeness.SKIPPED_POLICY
     assert d.calls == []
 
@@ -351,7 +353,7 @@ def test_image_digest_validates_output() -> None:
     d = FakeDocker()
     assert sandbox.image_digest("img", d) == DIGEST
     d.inspect = DockerResult(0, b"sha256:short\n", b"")
-    with pytest.raises(RuntimeError):
+    with pytest.raises(SandboxError):
         sandbox.image_digest("img", d)
 
 

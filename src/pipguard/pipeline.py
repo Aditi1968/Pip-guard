@@ -96,7 +96,7 @@ def _from_local_index(spec: PackageSpec, index: Path, dest: Path) -> FetchedPack
 
 def _sandbox(pkg: FetchedPackage, opts: ScanOptions) -> BehaviorTrace:
     if opts.sandbox_run is None:
-        from pipguard import sandbox  # pyright: ignore[reportAttributeAccessIssue]  # lazy: static-only scans need no Docker
+        from pipguard import sandbox  # lazy: static-only scans need no Docker
 
         return sandbox.run(
             pkg, config=opts.config, image=opts.image, pr_candidate=opts.pr_candidate
@@ -111,7 +111,7 @@ def _image_digest(opts: ScanOptions) -> str | None:
         return None
     if opts.image_digest is not None:
         return opts.image_digest(opts.image)
-    from pipguard import sandbox  # pyright: ignore[reportAttributeAccessIssue]
+    from pipguard import sandbox
 
     return sandbox.image_digest(opts.image)
 
