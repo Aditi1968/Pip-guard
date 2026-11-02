@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+*.egg-info/
+.hypothesis/
+# Raw corpus and scan outputs stay local (PRD: data). Only the manifest is committed.
+data/raw/
+data/samples/
+data/results/
+*.sqlite
+.pipguard-cache/
+.claude/worktrees/

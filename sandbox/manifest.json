@@ -1,0 +1,10 @@
+{
+  "note": "FAKE credentials: realistic formats, invalid random values generated at image build by seed_credentials.py. The marker lives here, never in the values (FR-4.3).",
+  "home": "/home/sandbox",
+  "files": [
+    "/home/sandbox/.aws/credentials",
+    "/home/sandbox/.ssh/id_rsa",
+    "/home/sandbox/.netrc",
+    "/home/sandbox/project/.env"
+  ]
+}
