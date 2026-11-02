@@ -19,7 +19,7 @@ SCHEMA_VERSION = 1
 # The sandbox image is CPython 3.12 on linux x86_64, so the wheel picked for dynamic
 # analysis must match the *sandbox's* tags, not the host's (dev machines may be Windows).
 SANDBOX_PYTHON_TAGS = ("cp312", "abi3", "py312", "py3", "py2.py3")
-SANDBOX_PLATFORM_PREFIXES = ("manylinux", "musllinux_1", "linux_x86_64", "any")
+SANDBOX_PLATFORM_PREFIXES = ("manylinux", "linux_x86_64", "any")  # glibc image: no musllinux
 
 _NAME_RE = re.compile(r"^([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9])$")
 _VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+!_-]*$")
