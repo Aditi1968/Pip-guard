@@ -16,6 +16,7 @@ RUN apt-get update \
 COPY sandbox/seed_credentials.py sandbox/manifest.json /opt/pipguard/
 RUN python /opt/pipguard/seed_credentials.py /home/sandbox /opt/pipguard/manifest.json \
     && chown -R 10001:10001 /home/sandbox
+COPY sandbox/runner.py /opt/pipguard/runner.py
 
 ENV HOME=/home/sandbox \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
