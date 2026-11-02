@@ -1,0 +1,100 @@
+# pip guard rules (PRD FR-5.1). Loaded by rules.py with yaml.safe_load and validated.
+#
+# blocking: any hit forces `block`. A blocking rule must reach >= 0.95 precision on the
+#   stratified benign sample. That has to be confirmed by the evaluation (docs/EVAL.md);
+#   any blocking rule that misses it moves to `warning`.
+# warning: any hit forces at least `warn`.
+#
+# Conditions: {feature, op, value} with op in >=, >, ==, <=, <, or {all: [...]} / {any: [...]}.
+#   Feature names come from features.FEATURE_NAMES plus rules.EXTRA_FEATURE_NAMES.
+#   Nothing is evaluated as code.
+# Reasons: fixed templates. {placeholders} name a feature or an evidence key
+#   (rules.EVIDENCE_KEYS). Every value is length-capped and Markdown-escaped before it goes in.
+
+blocking:
+  - id: B_CONNECT_INSTALL
+    description: connect() to a non-loopback IP address while pip installed the wheel
+    reason: "attempted {connect_install_external_count} outbound connect() call(s) during pip install, e.g. {first_connect_install_external}"
+    when: {feature: connect_install_external_count, op: ">=", value: 1}
+
+  - id: B_CREDENTIAL_EXFIL
+    description: credential file read plus a subprocess or connect() in the same trace
+    # PRD says "followed by"; the trace has no ordering, so this is co-occurrence.
+    reason: "read credential file {first_credential} and also spawned a subprocess or attempted connect()"
+    when: {feature: credential_read_and_connect_or_subprocess, op: ">=", value: 1}
+
+  - id: B_TYPOSQUAT_TOP100
+    description: name within edit distance 1 of a top-100 PyPI name
+    reason: "name is {typosquat_distance} edit away from top-100 package {typosquat_target}"
+    when:
+      all:
+        - {feature: typosquat_distance, op: "<=", value: 1}
+        - {feature: typosquat_target_rank, op: ">=", value: 1}
+        - {feature: typosquat_target_rank, op: "<=", value: 100}
+
+warning:
+  - id: W_INSTALL_HOOK
+    description: setup.py cmdclass or an overridden install command (present, not executed)
+    reason: "install hook present (setup.py cmdclass or overridden install command); sdist build behaviour is not exercised"
+    when:
+      any:
+        - {feature: setup_py_cmdclass, op: ">=", value: 1}
+        - {feature: overridden_install_command, op: ">=", value: 1}
+
+  - id: W_PTH_IMPORT
+    description: .pth file with an import line (runs on every interpreter start)
+    reason: ".pth file contains an import line, which runs on every Python start-up"
+    when: {feature: pth_import_lines, op: ">=", value: 1}
+
+  - id: W_IP_LITERAL
+    description: raw IP address literal in source
+    reason: "{ip_literal_count} raw IP address literal(s) in source, e.g. {first_ip}"
+    when: {feature: ip_literal_count, op: ">=", value: 1}
+
+  - id: W_URL_SHORTENER
+    description: URL shortener link in source
+    reason: "URL shortener link in source, e.g. {first_shortener}"
+    when: {feature: shortener_count, op: ">=", value: 1}
+
+  - id: W_TYPOSQUAT
+    description: typosquat indicator fired (FR-3.6 threshold)
+    reason: "name is {typosquat_distance} edit(s) away from popular package {typosquat_target}"
+    when: {feature: typosquat_fired, op: ">=", value: 1}
+
+  - id: W_SUSPICIOUS_SUBPROCESS
+    description: subprocess whose argv names curl/wget/a shell/powershell/nc
+    reason: "spawned a suspicious subprocess during install or import: {first_suspicious_subprocess}"
+    when: {feature: subprocess_suspicious_argv, op: ">=", value: 1}
+
+  - id: W_CONNECT_IMPORT
+    description: any connect() during import
+    reason: "attempted {connect_import_count} connect() call(s) during import, e.g. {first_connect_import}"
+    when: {feature: connect_import_count, op: ">=", value: 1}
+
+  - id: W_CONNECT_INSTALL
+    description: any connect() during install, including loopback and Unix sockets
+    reason: "attempted {connect_install_count} connect() call(s) during pip install, e.g. {first_connect_install}"
+    when: {feature: connect_install_count, op: ">=", value: 1}
+
+  - id: W_CREDENTIAL_READ
+    description: credential file read
+    reason: "read {credential_read_count} credential file(s), e.g. {first_credential}"
+    when: {feature: credential_read_count, op: ">=", value: 1}
+
+  - id: W_WRITE_OUTSIDE
+    description: file writes outside the allowed directories
+    reason: "wrote {write_outside_allowed_count} file(s) outside allowed directories, e.g. {first_write}"
+    when: {feature: write_outside_allowed_count, op: ">=", value: 1}
+
+  - id: W_OBFUSCATION
+    description: decoding (base64/zlib/marshal) together with exec/eval
+    reason: "decodes data (base64, zlib or marshal) and calls exec/eval; a common obfuscation pattern"
+    when:
+      all:
+        - any:
+            - {feature: susp_b64decode, op: ">=", value: 1}
+            - {feature: susp_zlib_decompress, op: ">=", value: 1}
+            - {feature: susp_marshal_loads, op: ">=", value: 1}
+        - any:
+            - {feature: susp_exec, op: ">=", value: 1}
+            - {feature: susp_eval, op: ">=", value: 1}
