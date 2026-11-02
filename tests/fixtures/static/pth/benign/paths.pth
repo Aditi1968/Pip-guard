@@ -1,0 +1,4 @@
+# path entries only
+src
+../lib
+  import_not_at_start
