@@ -94,8 +94,8 @@ def test_cache_save_and_comment_skip_forks(action: dict[str, Any]) -> None:
     assert "<!-- pipguard-report -->" in _step(action, "Post or update PR comment")["run"]
 
 
-def test_action_runs_locked_source_and_only_edits_own_comment() -> None:
-    text = (Path(__file__).parents[1] / "action" / "action.yml").read_text(encoding="utf-8")
-    assert "uv sync --locked" in text and "uv tool install" not in text
-    assert "github-actions[bot]" in text
-    assert "--local-index" in text
+def test_action_runs_locked_source_and_only_edits_own_comment(action: dict[str, Any]) -> None:
+    runs = "\n".join(s.get("run", "") for s in action["runs"]["steps"])
+    assert "uv sync --locked" in runs and "uv tool install" not in runs
+    assert "github-actions[bot]" in _step(action, "Post or update PR comment")["run"]
+    assert "--local-index" in _step(action, "Scan dependencies")["run"]
