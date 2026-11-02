@@ -138,3 +138,28 @@ def test_ci_no_changes_passes(repo: Path) -> None:
 def test_ci_bad_ref_fails_closed(repo: Path) -> None:
     r = runner.invoke(app, ["ci", "--base", "nosuchref", "--repo", str(repo), "--no-sandbox"])
     assert r.exit_code == 3
+
+
+def test_ci_uses_base_config_not_the_prs(repo: Path, tmp_path: Path) -> None:
+    index = tmp_path / "index"
+    build_wheel(index, "requets", "2.31.0", {"requets/__init__.py": "X = 1\n"})
+    # The PR tries to switch the gate off and allowlist its own package.
+    (repo / "pipguard.toml").write_text('watched_files = []\nallowlist = ["requets"]\n')
+    (repo / "requirements.txt").write_text("quietpkg==1.0\nrequets==2.31.0\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "head")
+    r = runner.invoke(
+        app,
+        [
+            "ci",
+            "--base",
+            "HEAD~1",
+            "--repo",
+            str(repo),
+            "--no-sandbox",
+            "--local-index",
+            str(index),
+        ],
+    )
+    assert r.exit_code == 2, r.output
+    assert "base branch" in r.output

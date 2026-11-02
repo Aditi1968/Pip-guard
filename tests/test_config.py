@@ -32,3 +32,12 @@ def test_malformed_is_error(tmp_path: Path) -> None:
 def test_hash_changes_with_config() -> None:
     assert config_hash(Config()) == config_hash(Config())
     assert config_hash(Config()) != config_hash(Config(allowlist=["x"]))
+
+
+def test_parse_config_text() -> None:
+    from pipguard.config import parse_config
+
+    assert parse_config("") == Config()
+    assert parse_config('allowlist = ["A"]').allowlist == ["a"]
+    with pytest.raises(PipGuardError):
+        parse_config("x = [")

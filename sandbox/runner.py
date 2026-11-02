@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import base64
 import contextlib
-import csv
 import ctypes
 import io
 import json
@@ -77,7 +76,12 @@ IMPORT_PROGRAM = _REDIRECT.format(log="import.log") + (
     "res={}\n"
     "for m in sys.argv[1:]:\n"
     "    try:\n"
-    "        importlib.import_module(m);res[m]='ok'\n"
+    "        mod=importlib.import_module(m)\n"
+    # The module must come from the target's install dir: a name that resolves to the
+    # stdlib or a dependency means the target's own code never ran (fail closed).
+    "        locs=[getattr(mod,'__file__',None) or '',*getattr(mod,'__path__',[])]\n"
+    f"        ok=any(os.path.realpath(p).startswith({SITE + '/'!r}) for p in locs if p)\n"
+    "        res[m]='ok' if ok else 'NotFromTarget'\n"
     "    except BaseException as e:\n"
     "        res[m]=type(e).__name__[:64]\n"
     f"with open({RESULTS!r},'w') as f:json.dump(res,f)\n"
@@ -139,25 +143,27 @@ def traced(step: str, argv: list[str], timeout: int, budget: list[int]) -> dict:
 
 
 def modules() -> list[str]:
-    """Top-level modules of the installed target: top_level.txt, else RECORD."""
-    infos = sorted(Path(SITE).glob("*.dist-info"))
-    if not infos:
-        return []
-    info = infos[0]
+    """Top-level modules actually installed under SITE, read from the filesystem.
+
+    Not from the package's own top_level.txt / RECORD: a malicious wheel could list `json`
+    there, the runner would import the stdlib module, and an unexecuted package would look
+    "complete". Package dirs (with any .py inside, so namespace packages count) and top-level
+    .py files are importable; metadata, scripts and caches are not.
+    """
+    site = Path(SITE)
     names: list[str] = []
-    top = info / "top_level.txt"
-    if top.is_file():
-        names = top.read_text(errors="replace")[:65536].split()
-    else:
-        record = info / "RECORD"
-        rows = csv.reader(io.StringIO(record.read_text(errors="replace")[: 1 << 20]))
-        for row in rows:
-            first = row[0].split("/")[0] if row else ""
-            if "/" in (row[0] if row else ""):
-                if not first.endswith((".dist-info", ".data")) and first != "__pycache__":
-                    names.append(first)
-            elif first.endswith(".py"):
-                names.append(first[:-3])
+    for entry in sorted(site.iterdir()) if site.is_dir() else []:
+        if entry.is_symlink():
+            continue
+        if entry.is_file() and entry.suffix == ".py":
+            names.append(entry.stem)
+        elif (
+            entry.is_dir()
+            and not entry.name.endswith((".dist-info", ".data", ".egg-info"))
+            and entry.name not in ("__pycache__", "bin")
+            and any(entry.rglob("*.py"))
+        ):
+            names.append(entry.name)
     return list(dict.fromkeys(n for n in names if n.isidentifier()))[:MAX_MODULES]
 
 

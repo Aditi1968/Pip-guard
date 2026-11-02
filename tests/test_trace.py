@@ -319,3 +319,49 @@ def test_adversarial_1mb_line_is_fast(unit: str) -> None:
     start = time.perf_counter()
     _check_caps(parse(line))
     assert time.perf_counter() - start < 1.0
+
+
+# ---------------------------------------------------------------- review hardening
+
+
+def _creds(text: str) -> list[str]:
+    from pipguard.trace import parse_strace
+
+    out = parse_strace(
+        text, "import", credential_paths=["/home/sandbox/.aws/credentials", "/home/sandbox/.netrc"]
+    )
+    return [c.path for c in out.credential_reads]
+
+
+def test_credential_aliases_are_canonicalised() -> None:
+    assert _creds('7 openat(AT_FDCWD, "//home/sandbox/.aws/credentials", O_RDONLY) = 3\n')
+    assert _creds('7 openat(AT_FDCWD, "/proc/self/root/home/sandbox/.netrc", O_RDONLY) = 3\n')
+    assert _creds(
+        '7 openat(AT_FDCWD, "/proc/12/root//proc/self/root/home/sandbox/.netrc", O_RDONLY) = 3\n'
+    )
+    assert _creds('7 openat(5, ".netrc", O_RDONLY) = 3\n')  # dirfd-relative, by name
+    assert not _creds('7 openat(AT_FDCWD, "/home/sandbox/.netrc.bak", O_RDONLY) = -1 ENOENT\n')
+
+
+def test_link_to_credential_counts_as_read() -> None:
+    assert _creds('7 symlink("/home/sandbox/.aws/credentials", "/tmp/x") = 0\n')
+    assert _creds('7 linkat(AT_FDCWD, "/home/sandbox/.netrc", AT_FDCWD, "/tmp/y", 0) = 0\n')
+    assert not _creds('7 symlink("/etc/hosts", "/tmp/x") = 0\n')
+
+
+def test_udp_sendto_is_a_connect_attempt() -> None:
+    from pipguard.trace import parse_strace
+
+    text = (
+        '7 sendto(3, "x", 1, 0, {sa_family=AF_INET, sin_port=htons(53), '
+        'sin_addr=inet_addr("8.8.8.8")}, 16) = -1 ENETUNREACH\n'
+        '7 sendto(4, "y", 1, 0, NULL, 0) = 1\n'
+        "7 sendmsg(3, {msg_name={sa_family=AF_INET6, sin6_port=htons(443), "
+        'sin6_flowinfo=htonl(0), inet_pton(AF_INET6, "2001:db8::9", &sin6_addr), '
+        "sin6_scope_id=0}, msg_namelen=28}, 0) = -1 ENETUNREACH\n"
+    )
+    out = parse_strace(text, "import", credential_paths=[])
+    assert [(c.family, c.address, c.port) for c in out.connects] == [
+        ("AF_INET", "8.8.8.8", 53),
+        ("AF_INET6", "2001:db8::9", 443),
+    ]

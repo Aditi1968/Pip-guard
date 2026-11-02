@@ -387,20 +387,31 @@ def test_runner_programs_compile() -> None:
     assert "addsitedir('/sandbox/deps')" not in runner.IMPORT_PROGRAM
 
 
-def test_runner_modules_from_top_level_then_record(
+def test_runner_modules_come_from_installed_files_not_metadata(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(runner, "SITE", str(tmp_path))
     assert runner.modules() == []
     info = tmp_path / "x-1.0.dist-info"
     info.mkdir()
-    (info / "RECORD").write_text(
-        "pkg/__init__.py,,\npkg/sub.py,,\nmod.py,,\nx-1.0.dist-info/RECORD,,\n"
-        "__pycache__/a.pyc,,\nx-1.0.data/scripts/s,,\nbad-name.py,,\nREADME,,\n"
-    )
-    assert runner.modules() == ["pkg", "mod"]
-    (info / "top_level.txt").write_text("alpha\n../evil\nbeta\nalpha\n")
-    assert runner.modules() == ["alpha", "beta"]
+    # A lying top_level.txt naming a stdlib module is ignored (review MUST-FIX 1).
+    (info / "top_level.txt").write_text("json\n")
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "__init__.py").write_text("")
+    (tmp_path / "ns" / "sub").mkdir(parents=True)
+    (tmp_path / "ns" / "sub" / "m.py").write_text("")
+    (tmp_path / "mod.py").write_text("")
+    (tmp_path / "bad-name.py").write_text("")
+    (tmp_path / "__pycache__").mkdir()
+    (tmp_path / "__pycache__" / "a.py").write_text("")
+    (tmp_path / "x-1.0.data").mkdir()
+    (tmp_path / "empty").mkdir()
+    assert runner.modules() == ["mod", "ns", "pkg"]
+
+
+def test_import_program_rejects_modules_from_outside_target() -> None:
+    assert "NotFromTarget" in runner.IMPORT_PROGRAM
+    assert "realpath" in runner.IMPORT_PROGRAM
 
 
 def test_runner_drain_caps() -> None:

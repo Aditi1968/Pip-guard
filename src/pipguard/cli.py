@@ -14,11 +14,11 @@ import typer
 
 from pipguard import SCANNER_VERSION
 from pipguard.cache import VerdictCache
-from pipguard.config import load_config
+from pipguard.config import load_config, parse_config
 from pipguard.diff import diff_dependencies, read_files_at
 from pipguard.errors import PipGuardError
 from pipguard.log import new_correlation_id, setup_logging
-from pipguard.models import PackageSpec, ScanReport
+from pipguard.models import Config, PackageSpec, ScanReport
 from pipguard.pipeline import DEFAULT_IMAGE, ScanOptions, report_for, scan_artifact, scan_spec
 from pipguard.pipeline import scan_changes as run_changes
 from pipguard.report import exit_code, render_comment, render_summary, write_report_artifact
@@ -39,11 +39,34 @@ def _fail(msg: str) -> typer.Exit:
     return typer.Exit(EXIT_ERROR)
 
 
-def _options(config: Path, model: Path | None, **kw: object) -> ScanOptions:
+def _options(config: Path | Config, model: Path | None, **kw: object) -> ScanOptions:
     try:
-        return ScanOptions(config=load_config(config), model=load_model(model), **kw)  # type: ignore[arg-type]
+        cfg = config if isinstance(config, Config) else load_config(config)
+        return ScanOptions(config=cfg, model=load_model(model), **kw)  # type: ignore[arg-type]
     except PipGuardError as exc:
         raise _fail(str(exc)) from exc
+
+
+def _ci_config(config: Path, base: str, head: str, repo: Path) -> tuple[Path | Config, list[str]]:
+    """The config that governs a PR is the BASE ref's, never the PR's own.
+
+    Otherwise a PR could set ``watched_files = []``, allowlist its own package or raise the
+    thresholds, and pass the check it is meant to face. An absolute ``--config`` outside the
+    repository is the operator's explicit choice and is used as given.
+    """
+    if config.is_absolute():
+        return config, []
+    rel = config.as_posix()
+    try:
+        base_text = read_files_at(base, [rel], repo)[rel]
+        head_text = read_files_at(head, [rel], repo)[rel]
+        cfg = parse_config(base_text, f"{rel}@{base}")
+    except PipGuardError as exc:
+        raise _fail(str(exc)) from exc
+    notes = []
+    if base_text != head_text:
+        notes.append(f"{rel} changed in this PR; the base branch's version was used for this scan")
+    return cfg, notes
 
 
 def _pretty(report: ScanReport) -> str:
@@ -121,10 +144,10 @@ def ci(
     """Diff pinned dependencies between two refs, scan the changes, report (Action mode)."""
     setup_logging()
     new_correlation_id()
-    cfg_path = config if config.is_absolute() else repo / config
+    cfg, cfg_notes = _ci_config(config, base, head, repo)
     vcache = VerdictCache(cache) if cache is not None else None
     opts = _options(
-        cfg_path,
+        cfg,
         model,
         sandbox=not no_sandbox,
         image=image,
@@ -140,7 +163,7 @@ def ci(
         )
     except PipGuardError as exc:
         raise _fail(f"dependency diff failed: {exc}") from exc
-    notes = ["cache is read-only on fork PRs"] if read_only_cache else []
+    notes = cfg_notes + (["cache is read-only on fork PRs"] if read_only_cache else [])
     with tempfile.TemporaryDirectory(prefix="pipguard-") as tmp:
         result = run_changes(changes, opts, Path(tmp), notes=notes)
     if vcache is not None:

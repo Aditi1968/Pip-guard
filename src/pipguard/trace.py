@@ -102,6 +102,10 @@ class _State:
     seen_exec: set[tuple[int, tuple[str, ...]]] = field(default_factory=set)
     seen: set[object] = field(default_factory=set)
 
+    @property
+    def cred_names(self) -> frozenset[str]:
+        return frozenset(posixpath.basename(c) for c in self.creds)
+
 
 def _clean(s: str, cap: int, out: ParsedStep) -> str:
     s = _CTRL.sub("", s)
@@ -233,10 +237,14 @@ def _on_open(st: _State, name: str, args: list[str]) -> None:
         return
     at_cwd = name in ("open", "creat") or args[0] == "AT_FDCWD"
     if path.startswith("/"):
-        path = posixpath.normpath(path)
+        path = _canon(path)
     elif at_cwd:
-        path = posixpath.normpath(posixpath.join(SANDBOX_CWD, path))
+        path = _canon(posixpath.join(SANDBOX_CWD, path))
     # else: relative to an unknown directory fd; kept as written and never "allowed".
+    elif posixpath.basename(path) in st.cred_names:
+        # dirfd-relative open of a seeded file's name (e.g. openat(home_fd, ".netrc")):
+        # we cannot resolve the directory, so a matching name counts as a credential read.
+        _add(st, out.credential_reads, ("c", path), CredentialRead(step=out.step, path=path))
     flags = set(_FLAG.findall(args[flags_i][:512])) if 0 <= flags_i < len(args) else set()
     if (name == "creat" or flags & _WRITE_FLAGS) and not (
         path.startswith("/") and _is_allowed(path, st.allowed)
@@ -245,6 +253,57 @@ def _on_open(st: _State, name: str, args: list[str]) -> None:
         _add(st, out.writes, ("w", path), FileWrite(step=out.step, path=path))
     if path in st.creds:
         _add(st, out.credential_reads, ("c", path), CredentialRead(step=out.step, path=path))
+
+
+_PROC_ROOT = re.compile(r"^/proc/(?:self|thread-self|\d{1,10})/root(?=/|$)")
+
+
+def _canon(path: str) -> str:
+    """Absolute path in canonical form, so aliases cannot dodge the credential/allow checks.
+
+    POSIX keeps a leading ``//`` through normpath, and ``/proc/<pid>/root`` re-enters the
+    container root; both reach the same file. Symlinks cannot be resolved from a trace, so
+    link creation pointing at a credential file is caught separately (``_on_link``).
+    """
+    path = "/" + path.lstrip("/")
+    for _ in range(8):  # bounded: nested /proc/self/root/proc/self/root/...
+        path = posixpath.normpath("/" + posixpath.normpath(path).lstrip("/"))
+        stripped = _PROC_ROOT.sub("", path)
+        if stripped == path:
+            break
+        path = stripped or "/"
+    return path
+
+
+def _on_link(st: _State, name: str, args: list[str]) -> None:
+    """symlink/link/rename whose *source* is a seeded credential file: an aliasing attempt."""
+    src_i = {"symlink": 0, "link": 0, "rename": 0, "symlinkat": 0, "linkat": 1,
+             "renameat": 1, "renameat2": 1}[name]  # fmt: skip
+    if len(args) <= src_i:
+        return
+    src = decode_string(args[src_i], MAX_PATH, st.out)
+    if src is None:
+        return
+    path = _canon(src if src.startswith("/") else posixpath.join(SANDBOX_CWD, src))
+    if path in st.creds:
+        out = st.out
+        _add(st, out.credential_reads, ("c", path), CredentialRead(step=out.step, path=path))
+
+
+_SOCKADDR = re.compile(r"\{sa_family=[^{}]{0,512}\}")
+
+
+def _on_send(st: _State, args: list[str]) -> None:
+    """sendto/sendmsg/sendmmsg with an explicit destination: a connectionless send (UDP).
+
+    Recorded as a connect attempt: on a network-less container both mean "tried to reach
+    this address", and a UDP send skips connect() entirely.
+    """
+    for a in args[1:]:
+        m = _SOCKADDR.search(a[:8192])
+        if m:
+            _on_connect(st, ["", m.group(0)])
+            return
 
 
 def _on_exec(st: _State, pid: int, name: str, args: list[str], ok: bool) -> None:
@@ -305,6 +364,13 @@ def _on_connect(st: _State, args: list[str]) -> None:
     )
 
 
+_SENDS = frozenset({"sendto", "sendmsg", "sendmmsg"})
+_LINKS = frozenset({"symlink", "symlinkat", "link", "linkat", "rename", "renameat", "renameat2"})
+_HANDLED = frozenset(
+    {"open", "openat", "openat2", "creat", "execve", "execveat", "connect"} | _SENDS | _LINKS
+)
+
+
 def _handle(st: _State, pid: int, body: str) -> None:
     ms = _SYSCALL.match(body)
     if ms is None:
@@ -313,13 +379,17 @@ def _handle(st: _State, pid: int, body: str) -> None:
     if st.out.root_pid is None:
         st.out.root_pid = pid
     name = ms.group(1)
-    if name not in ("open", "openat", "openat2", "creat", "execve", "execveat", "connect"):
+    if name not in _HANDLED:
         return
     args, rest = split_args(body, ms.end())
     rm = _RET.match(rest) if rest is not None else None
     ok = rm is not None and not rm.group(1).startswith("-")
     if name == "connect":
         _on_connect(st, args)
+    elif name in _SENDS:
+        _on_send(st, args)
+    elif name in _LINKS:
+        _on_link(st, name, args)
     elif name.startswith("exec"):
         _on_exec(st, pid, name, args, ok)
     else:
@@ -340,7 +410,7 @@ def parse_strace(
         out.truncated = out.input_truncated = True
     st = _State(
         out=out,
-        creds=frozenset(posixpath.normpath(p) for p in credential_paths),
+        creds=frozenset(_canon(p) for p in credential_paths),
         allowed=tuple(allowed_write_prefixes),
     )
     pending: dict[int, str] = {}  # pid -> text of an <unfinished ...> call
