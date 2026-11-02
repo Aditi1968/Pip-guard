@@ -2,7 +2,7 @@
 
 Three tracks, never mixed: each number is reported only for the population it was measured on (PRD "Data, ML and evaluation"). How to reproduce: `scripts/eval/README.md`.
 
-**Status: not yet run.** Every table below is a placeholder until the local evaluation has been run.
+**Status:** Track A has not been run yet; its tables are placeholders until the local corpus evaluation runs. Tracks B and C have been run locally (2026-11-03), as shown below.
 
 ## Read this first
 
@@ -64,18 +64,38 @@ Behavioural features are not evaluated on Track A: these samples are never execu
 
 ## Track B: behavioural detection (fixture suite)
 
-Not yet run. Each suspicious fixture is paired with a benign counterexample that uses the same API legitimately. Target: every expected observation detected, no counterexample flagged, parser fuzz tests pass (100%, deterministic).
+Run locally on 2026-11-03 with `uv run pytest -m docker` (Docker Desktop 27.5.1, WSL2; hardened FR-4.7 flags plus the explicit default seccomp profile). Result: **15 passed, 0 failed**. CI repeats this run on `ubuntu-latest` (the `docker` job).
+
+Each suspicious fixture is paired with a benign counterexample that uses the same API legitimately. Target: every expected observation is detected, no counterexample is flagged, and the parser fuzz tests pass (100%, deterministic).
 
 | Fixture | Expected observation | Detected | Counterexample clean |
 | --- | --- | --- | --- |
-| not yet run | | | |
+| connect_import | `connect()` to 203.0.113.10:443 at import | yes | yes (function defined, never called) |
+| credential_exfil | `~/.aws/credentials` read and `sh -c 'curl …'` spawned at import | yes | yes (reads its own data file only) |
+| pth_import | subprocess spawned from a target `.pth` at interpreter start | yes | yes (path-only `.pth`) |
+| obfuscated_exec | `exec(b64decode(…))` opens `~/.netrc` | yes | yes (decodes data, never execs) |
+| write_outside | write attempt to `/home/sandbox/.bashrc` (EROFS) | yes | yes (writes in `/tmp`) |
+| noisy_dependency | attribution: the dependency's `.pth` connect is **not** attributed to the target | yes (no connect) | n/a |
+| timeout | `incomplete:timeout` | yes | n/a |
+| import_failed | `incomplete:import_failed` | yes | n/a |
+| real pip install | a real wheel install step has zero connects, subprocesses, outside writes or credential reads | yes | n/a |
+
+Parser fuzzing: `tests/test_trace.py` (hypothesis) passes in the default unit-test run.
+
+Note: installing a **wheel** runs no package code, so behaviour shows up at import time and through target `.pth` files, not in the install step. The fixture suite reflects that honestly; no fixture claims an install-time `connect()` from a wheel.
 
 ## Track C: end-to-end (demo repository PRs)
 
-Not yet run. Cases: planted package, benign bump, unpinned spec, forced timeout, forced download failure. Target: correct verdict and check outcome for every case, fail-closed on every error case.
+Cases: planted package, benign bump, unpinned spec, forced timeout, forced download failure. Target: the correct verdict and check outcome for every case, failing closed on every error case.
 
-| Case | Expected verdict | Actual verdict | Check outcome | Time |
+**Local dry run (2026-11-03, Windows + Docker Desktop, not `ubuntu-latest`).** These runs used `pipguard ci` on a local copy of `demo/template` and `pipguard scan` for the PyPI cases. The GitHub demo repository has not been pushed yet, so the CI timings below are still pending.
+
+| Case | Expected verdict | Actual verdict (local) | Exit / check | Time (local) |
 | --- | --- | --- | --- | --- |
-| not yet run | | | | |
+| planted `requets==2.31.0` | block, ≥ 2 reasons | **block**. Reasons: credential file read plus subprocess/`connect()`; 1 edit from top-100 `requests`; raw IP `203.0.113.50` | 2 (fails) | about 68 s for the whole PR, including the next row |
+| forced timeout `sleepy==1.0.0` | incomplete | **incomplete:timeout** (`import_s = 30`) | 3 (fails) | (included above) |
+| unpinned `flask>=3` | warn | **warn**: not scanned, not an exact pin | 0 (passes) | under 1 s |
+| benign bump `six==1.17.0` | allow | **allow** (with sandbox) | 0 (passes) | 21 s |
+| download failure `six==99.0.0` | error | **error**: not found on PyPI | 3 (fails) | 3 s |
 
-p50 / p95 scan time: not yet run.
+p50 / p95 scan time on `ubuntu-latest`: pending the demo repository run (`demo/make_prs.sh`).
