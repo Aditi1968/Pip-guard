@@ -466,3 +466,23 @@ def test_from_local_sdist_and_rejects(tmp_path: Path) -> None:
         from_local_artifact(other, tmp_path / "dl")
     with pytest.raises(FetchError):
         from_local_artifact(tmp_path / "gone-1.0.tar.gz", tmp_path / "dl")
+
+
+def test_primary_sha256_without_downloading(tmp_path: Path) -> None:
+    from pipguard.fetch import primary_sha256
+
+    pypi = FakePyPI()
+    whl = _wheel_bytes(tmp_path, "demo", "1.0")
+    pypi.release(
+        "demo",
+        "1.0",
+        [
+            pypi.file("demo-1.0-py3-none-any.whl", whl, "2026-01-01T00:00:00Z"),
+            pypi.file("demo-1.0.tar.gz", _sdist_bytes(), "2026-01-01T00:00:00Z"),
+        ],
+    )
+    spec = PackageSpec(name="demo", version="1.0")
+    assert primary_sha256(spec, client=pypi.client()) == hashlib.sha256(whl).hexdigest()
+    pypi.release("empty", "1.0", [])
+    with pytest.raises(FetchError):
+        primary_sha256(PackageSpec(name="empty", version="1.0"), client=pypi.client())

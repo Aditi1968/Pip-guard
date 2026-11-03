@@ -46,6 +46,7 @@ FLAGS=(
   --security-opt no-new-privileges
   --security-opt "seccomp=$SECCOMP"
   --memory 1g
+  --memory-swap 1g
   --pids-limit 256
   --user 10001:10001
 )

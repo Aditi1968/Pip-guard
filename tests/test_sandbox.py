@@ -145,7 +145,7 @@ def test_docker_argv_has_every_hardening_flag_and_nothing_forbidden() -> None:
         "--cap-drop ALL",
         "--security-opt no-new-privileges",
         f"--security-opt seccomp={sandbox.SECCOMP_PROFILE}",
-        "--memory 1g",
+        "--memory 1g --memory-swap 1g",
         "--pids-limit 256",
         "--user 10001:10001",
         "--name pipguard-x",

@@ -205,3 +205,38 @@ def test_scan_artifact(tmp_path: Path) -> None:
     assert scan_artifact(wheel, opts, tmp_path / "w").verdict.level is Level.ALLOW
     bad = scan_artifact(tmp_path / "nope.txt", opts, tmp_path / "x")
     assert bad.verdict.level is Level.ERROR
+
+
+def test_cache_hit_skips_every_stage_including_download(tmp_path: Path) -> None:
+    db = VerdictCache(tmp_path / "c.sqlite")
+    first = scan_spec(SPEC, _opts(tmp_path, cache=db), tmp_path / "a")
+    sha = first.verdict.coverage.artifacts[0].sha256
+    calls: list[str] = []
+
+    def no_fetch(spec: PackageSpec, dest: Path) -> FetchedPackage:
+        calls.append("fetch")
+        raise AssertionError("fetch must not run on a cache hit")
+
+    hit = scan_spec(
+        SPEC, _opts(tmp_path, cache=db, fetcher=no_fetch, resolver=lambda spec: sha), tmp_path / "b"
+    )
+    assert hit.verdict.cache_hit and calls == [] and set(hit.timings) == {"cache"}
+    db.close()
+
+
+def test_scanner_change_invalidates_cache(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import pipguard.pipeline as pl
+
+    db = VerdictCache(tmp_path / "c.sqlite")
+    scan_spec(SPEC, _opts(tmp_path, cache=db), tmp_path / "a")
+    monkeypatch.setattr(pl, "scanner_fingerprint", lambda: "different-scanner")
+    assert not scan_spec(SPEC, _opts(tmp_path, cache=db), tmp_path / "b").verdict.cache_hit
+    db.close()
+
+
+def test_unexpected_fetch_crash_is_error(tmp_path: Path) -> None:
+    def crash(spec: PackageSpec, dest: Path) -> FetchedPackage:
+        raise ValueError("bad json")
+
+    r = scan_spec(SPEC, _opts(tmp_path, fetcher=crash), tmp_path / "w")
+    assert r.verdict.level is Level.ERROR and "ValueError" in r.verdict.reasons[0]

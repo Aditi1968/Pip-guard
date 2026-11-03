@@ -77,7 +77,11 @@ git+https://example.com/repo#egg=foo
     pins = [str(r.spec) for r in reqs if r.spec]
     assert pins == ["requests==2.32.3", "numpy==2.1.0"]
     reasons = [r.unsupported_reason for r in reqs if r.spec is None]
+    # Index options change where pip installs from, so they are reported (review finding 6).
     assert reasons == [
+        "index option changes where pip installs from",
+        "index option changes where pip installs from",
+        "index option changes where pip installs from",
         "included file not followed",
         "included file not followed",
         "included file not followed",
@@ -192,3 +196,16 @@ def test_read_files_at(git_repo: Path) -> None:
 def test_read_files_at_bad_ref_raises(git_repo: Path, ref: str) -> None:
     with pytest.raises(PipGuardError):
         read_files_at(ref, ["requirements.txt"], repo=git_repo)
+
+
+def test_decode_requirements_honours_boms() -> None:
+    from pipguard.diff import decode_requirements
+
+    text = "requets==2.31.0\n"
+    for data in (
+        text.encode("utf-16"),
+        text.encode("utf-8-sig"),
+        text.encode("utf-32"),
+        text.encode(),
+    ):
+        assert decode_requirements(data) == text

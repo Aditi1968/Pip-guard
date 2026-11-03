@@ -88,7 +88,7 @@ runs:
         mkdir -p .pipguard-cache
         args=(ci --base "$BASE" --summary "$GITHUB_STEP_SUMMARY"
               --report pipguard-report.json.gz --cache .pipguard-cache/verdicts.sqlite
-              --config "$CONFIG" --comment-file "$RUNNER_TEMP/pipguard-comment.md")
+              --config "$CONFIG" --comment-file pipguard-comment.md)
         if [ "$FAIL_ON_WARN" = "true" ]; then args+=(--fail-on-warn); fi
         if [ -n "$LOCAL_INDEX" ]; then args+=(--local-index "$LOCAL_INDEX"); fi
         # Anything but an explicit same-repo answer is treated as a fork: no cache writes.
@@ -112,7 +112,11 @@ runs:
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: pipguard-report
-        path: pipguard-report.json.gz
+        # The comment body travels with the report so a separate job holding
+        # `pull-requests: write` can post it without ever running the scan.
+        path: |
+          pipguard-report.json.gz
+          pipguard-comment.md
         if-no-files-found: warn
         retention-days: 14
 
@@ -126,7 +130,7 @@ runs:
         REPO: ${{ github.repository }}
         PR: ${{ github.event.pull_request.number }}
       run: |
-        body="$RUNNER_TEMP/pipguard-comment.md"
+        body="pipguard-comment.md"
         if [ ! -s "$body" ]; then echo "no comment body produced"; exit 0; fi
         id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
           --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- pipguard-report -->"))) | .id' | head -n 1) || id=""

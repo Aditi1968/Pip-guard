@@ -180,3 +180,12 @@ Result (2026-11-02, local): **yes, strace works under the hardened flags. No rel
   - `pipguard ci` reads `pipguard.toml` from the base ref, so a PR cannot disable or loosen its own gate.
   - `--local-index` wheels take precedence over PyPI and are treated as PR-proposed.
 - Known differences between the spike and production flags: `sandbox/spike.sh` has no `/sandbox/deps` tmpfs and writes traces to `/tmp` files. Production (`sandbox.docker_run_argv`) adds the deps tmpfs and streams strace to a pipe. Both use the same isolation flags.
+- 2026-11-03 — Review findings 6–18:
+  - Requirements files are decoded like pip (UTF-8/16/32 BOMs), and index options (`-i`, `--extra-index-url`, `--find-links`, `--no-index`) are reported as unsupported.
+  - The cache key now includes a fingerprint of the scanner code, `rules.yaml`, the typosquat snapshot, the runner, the Dockerfile and the seccomp profile. A cache hit is looked up by PyPI's published sha256 *before* any download, so a hit skips every stage (FR-1.3).
+  - An unexpected fetch crash is an `error` verdict with a report.
+  - The sandbox adds `--memory-swap 1g`, so there is no swap beyond the 1 GB cap.
+  - The PR comment can be posted by a separate job (`pull-requests: write`) while the scanning job keeps `contents: read`.
+  - Dependabot is added.
+  - Still open: model and thresholds (FR-5.2/5.8, need the corpus), GHCR image publishing, the apt `strace` pin, `explain` listing every rule rather than only hits (FR-7.3, P1), and making `FetchedPackage.origin` required.
+

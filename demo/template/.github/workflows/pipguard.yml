@@ -10,8 +10,7 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      pull-requests: write  # only for the same-repo PR comment (FR-6.4)
+      contents: read  # the job that runs the scan never holds a write token
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -20,4 +19,33 @@ jobs:
       # Never add `continue-on-error: true` here: it defeats enforcement.
       - uses: OWNER/pip-guard/action@PIPGUARD_COMMIT_SHA
         with:
+          comment: "false"  # posted by the separate `comment` job below
           local-index: vendor/wheels  # demo only: planted wheels; everything else from PyPI
+
+  # FR-6.4 (P1): only this job gets `pull-requests: write`, and it runs no scanner code:
+  # it downloads the comment body produced by `scan` and posts or updates one comment.
+  comment:
+    needs: scan
+    if: always() && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: pipguard-report
+      - name: Post or update the pip guard comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          body=pipguard-comment.md
+          if [ ! -s "$body" ]; then echo "no comment body produced"; exit 0; fi
+          id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- pipguard-report -->"))) | .id' | head -n 1) || id=""
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$id" -F "body=@$body" >/dev/null
+          else
+            gh api -X POST "repos/$REPO/issues/$PR/comments" -F "body=@$body" >/dev/null
+          fi

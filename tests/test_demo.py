@@ -31,3 +31,12 @@ def test_demo_workflow_is_read_only_and_never_target() -> None:
     assert "pull_request_target" not in wf.replace("never pull_request_target", "")
     assert "continue-on-error: true" not in wf.replace("Never add `continue-on-error: true`", "")
     assert "contents: read" in wf
+
+
+def test_demo_scan_job_has_no_write_token() -> None:
+    import yaml
+
+    wf = yaml.safe_load((DEMO / "template" / ".github" / "workflows" / "pipguard.yml").read_text())
+    assert wf["jobs"]["scan"]["permissions"] == {"contents": "read"}
+    assert wf["jobs"]["comment"]["permissions"] == {"pull-requests": "write"}
+    assert all("pipguard" not in str(s.get("uses", "")) for s in wf["jobs"]["comment"]["steps"])

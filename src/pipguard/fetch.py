@@ -599,6 +599,21 @@ def fetch(
     )
 
 
+def primary_sha256(spec: PackageSpec, *, client: PyPIClient | None = None) -> str:
+    """SHA-256 PyPI publishes for the artifact ``fetch`` would scan first (wheel, else sdist).
+
+    One JSON request and no download, so a cache hit can skip every stage (FR-1.3).
+    """
+    client = client or PyPIClient()
+    data = client.get_json(f"{PYPI}/{quote(spec.name)}/{quote(spec.version)}/json")
+    files = [f for f in data.get("urls") or [] if isinstance(f, dict)]
+    chosen = _pick_wheel(files) or _pick_sdist(files)
+    sha = ((chosen or {}).get("digests") or {}).get("sha256")
+    if not isinstance(sha, str) or len(sha) != 64:
+        raise FetchError(f"{spec}: no artifact with a published sha256")
+    return sha.lower()
+
+
 def from_local_artifact(path: Path, dest: Path) -> FetchedPackage:
     """Wrap a local wheel or sdist (``--artifact``, FR-7.1). No network; metadata is missing."""
     name = path.name

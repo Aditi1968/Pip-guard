@@ -70,7 +70,7 @@ def docker_run_argv(name: str, image: str, install_s: int, import_s: int) -> lis
         "--security-opt", "no-new-privileges",
         # Passed explicitly: some daemons (Docker Desktop) report seccomp=unconfined.
         "--security-opt", f"seccomp={SECCOMP_PROFILE}",
-        "--memory", "1g",
+        "--memory", "1g", "--memory-swap", "1g",
         "--pids-limit", "256",
         "--user", "10001:10001",
         image,

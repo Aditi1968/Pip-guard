@@ -1,0 +1,15 @@
+# PRD NFR "Security: pip guard's own supply chain": keep pinned dependencies current.
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directories: [/, /action]
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /sandbox
+    schedule:
+      interval: weekly

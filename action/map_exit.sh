@@ -8,7 +8,7 @@ case "$code" in
     echo "pip guard: pass (allow, or warn without fail-on-warn)"
     exit 0 ;;
   1)
-    echo "::error title=pip guard::warn with fail-on-warn: failing the job"
+    echo "::error title=pip guard::warn with fail-on-warn, or the scanner crashed before reporting: failing the job"
     exit 1 ;;
   2)
     echo "::error title=pip guard::blocked: a dependency looks malicious, see the job summary"

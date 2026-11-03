@@ -7,11 +7,13 @@ place, rather than in each caller.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import cache
 from pathlib import Path
 
 from pipguard import SCANNER_VERSION
@@ -19,7 +21,7 @@ from pipguard.cache import VerdictCache
 from pipguard.config import config_hash
 from pipguard.errors import ExtractionError, FetchError, PipGuardError
 from pipguard.extract import extract_package
-from pipguard.fetch import fetch, from_local_artifact
+from pipguard.fetch import fetch, from_local_artifact, primary_sha256
 from pipguard.log import correlation_id
 from pipguard.models import (
     ArtifactRef,
@@ -45,6 +47,33 @@ DEFAULT_IMAGE = "pipguard-sandbox:local"  # the tag action/action.yml builds
 
 SandboxRun = Callable[..., BehaviorTrace]
 
+_ROOT = Path(__file__).resolve().parents[2]
+# Everything whose change can alter a verdict. Hashing it into the cache key means a new
+# scanner, rule set, snapshot or sandbox never reuses an old verdict, even if nobody
+# remembers to bump SCANNER_VERSION (review finding 7).
+_FINGERPRINT_FILES = (
+    *sorted(Path(__file__).parent.glob("*.py")),
+    Path(__file__).parent / "rules.yaml",
+    _ROOT / "data" / "top-pypi-5000.json",
+    _ROOT / "sandbox" / "runner.py",
+    _ROOT / "sandbox" / "sandbox.Dockerfile",
+    _ROOT / "sandbox" / "seccomp-default.json",
+)
+
+
+@cache
+def scanner_fingerprint() -> str:
+    h = hashlib.sha256(SCANNER_VERSION.encode())
+    for f in _FINGERPRINT_FILES:
+        h.update(f.name.encode())
+        h.update(f.read_bytes() if f.is_file() else b"<missing>")
+    return h.hexdigest()[:16]
+
+
+def cache_key_hash(config: Config) -> str:
+    """The cache key's config part: effective config plus the scanner fingerprint."""
+    return f"{config_hash(config)}-{scanner_fingerprint()}"
+
 
 @dataclass
 class ScanOptions:
@@ -60,6 +89,7 @@ class ScanOptions:
     fetcher: Callable[[PackageSpec, Path], FetchedPackage] | None = None
     sandbox_run: SandboxRun | None = None
     image_digest: Callable[[str], str] | None = None
+    resolver: Callable[[PackageSpec], str] | None = None  # spec -> published sha256
 
 
 @dataclass
@@ -122,7 +152,7 @@ def scan_fetched(raw: str, pkg: FetchedPackage, opts: ScanOptions, workdir: Path
     refs = _refs(pkg)
     model_version = opts.model.model_version
     primary = pkg.wheel or pkg.sdist
-    cfg_hash = config_hash(opts.config)
+    cfg_hash = cache_key_hash(opts.config)
 
     t = time.monotonic()
     try:
@@ -193,12 +223,43 @@ def scan_fetched(raw: str, pkg: FetchedPackage, opts: ScanOptions, workdir: Path
     return ScanResult(verdict, trace, timings, static)
 
 
+def _early_cache_hit(spec: PackageSpec, opts: ScanOptions) -> ScanResult | None:
+    """FR-1.3: on a cache hit, skip every stage, including the downloads.
+
+    Looks the artifact up by the SHA-256 PyPI publishes (one JSON request). Anything that
+    goes wrong just means "no early hit": the full scan then runs and fails closed itself.
+    Local-index wheels are hashed after reading them, in ``scan_fetched``.
+    """
+    if opts.cache is None or opts.local_index is not None:
+        return None
+    t = time.monotonic()
+    try:
+        sha = (opts.resolver or primary_sha256)(spec)
+        digest = _image_digest(opts)
+    except Exception:
+        return None
+    cfg_hash = cache_key_hash(opts.config)
+    model_version = opts.model.model_version
+    hit = opts.cache.get(sha, SCANNER_VERSION, model_version, cfg_hash, digest)
+    if hit is None:
+        return None
+    trace = (
+        opts.cache.get_trace(sha, SCANNER_VERSION, model_version, cfg_hash, digest)
+        if digest
+        else None
+    )
+    return ScanResult(hit, trace, {"cache": time.monotonic() - t})
+
+
 def scan_spec(
     spec: PackageSpec, opts: ScanOptions, workdir: Path, raw: str | None = None
 ) -> ScanResult:
     """Scan ``name==version``. Never raises for package or environment problems."""
     raw = raw or str(spec)
     t = time.monotonic()
+    early = _early_cache_hit(spec, opts)
+    if early is not None:
+        return early
     try:
         pkg = None
         if opts.local_index is not None:
@@ -214,6 +275,17 @@ def scan_spec(
                 spec,
                 f"fetch failed: {exc}",
                 coverage=cov,
+                model_version=opts.model.model_version,
+            )
+        )
+    except Exception as exc:
+        log.exception("unexpected fetch failure for %s", raw)
+        return ScanResult(
+            error_verdict(
+                raw,
+                spec,
+                f"internal fetch error ({type(exc).__name__}); failing closed",
+                coverage=Coverage(fetch=StageStatus.FAILED),
                 model_version=opts.model.model_version,
             )
         )

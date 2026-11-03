@@ -55,14 +55,17 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      pull-requests: write   # only for the optional same-repo PR comment
+      contents: read     # the scanning job never holds a write token
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
       - uses: OWNER/pip-guard/action@<commit-sha>   # pin to a commit SHA
+        with:
+          comment: "false"   # optional PR comment: see the separate job in demo/template
 ```
+
+The optional same-repo PR comment (FR-6.4) is posted by a separate job that holds `pull-requests: write` and runs no scanner code. It downloads the `pipguard-report` artifact and posts `pipguard-comment.md`; copy it from [`demo/template/.github/workflows/pipguard.yml`](demo/template/.github/workflows/pipguard.yml). The `scan` job's summary and check status are the product either way.
 
 > **Warning:** do not set `continue-on-error: true` on the pip guard step. It turns every `block`, `error` and `incomplete` into a passing job and defeats enforcement (FR-6.2).
 

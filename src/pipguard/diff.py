@@ -9,6 +9,7 @@ scope (FR-1.5).
 
 from __future__ import annotations
 
+import codecs
 import re
 import subprocess
 import tomllib
@@ -25,6 +26,7 @@ _NAME = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?")
 _COMMENT = re.compile(r"(^|\s)#.*$")
 _INCLUDES = ("-r", "--requirement", "-c", "--constraint")
 _EDITABLE = ("-e", "--editable")
+_INDEX_OPTIONS = ("-i", "--index-url", "--extra-index-url", "-f", "--find-links", "--no-index")
 _MAX_RAW = 500  # a requirement line longer than this is not a real pin
 
 
@@ -109,6 +111,15 @@ def parse_requirements(text: str) -> list[ParsedReq]:
                         line[:_MAX_RAW], None, unsupported_reason="included file not followed"
                     )
                 )
+            elif opt in _INDEX_OPTIONS:
+                # pip would install from somewhere other than the PyPI artifact we scan.
+                reqs.append(
+                    ParsedReq(
+                        line[:_MAX_RAW],
+                        None,
+                        unsupported_reason="index option changes where pip installs from",
+                    )
+                )
             elif opt in _EDITABLE:
                 reqs.append(
                     ParsedReq(line[:_MAX_RAW], None, unsupported_reason="editable requirement")
@@ -175,6 +186,25 @@ def diff_dependencies(
     return changes
 
 
+def decode_requirements(data: bytes) -> str:
+    """Decode like pip: honour a UTF-8/UTF-16/UTF-32 BOM, else UTF-8.
+
+    pip reads a UTF-16 requirements file correctly; decoding it as UTF-8 would turn every
+    line into an "unparseable" warn and let the dependencies through unscanned.
+    """
+    boms = (
+        (codecs.BOM_UTF32_LE, "utf-32"),
+        (codecs.BOM_UTF32_BE, "utf-32"),
+        (codecs.BOM_UTF8, "utf-8-sig"),
+        (codecs.BOM_UTF16_LE, "utf-16"),
+        (codecs.BOM_UTF16_BE, "utf-16"),
+    )
+    for bom, enc in boms:
+        if data.startswith(bom):
+            return data.decode(enc, errors="replace")
+    return data.decode("utf-8", errors="replace")
+
+
 def read_files_at(ref: str, paths: list[str], repo: Path = Path()) -> dict[str, str]:
     """Contents of ``paths`` at git ``ref`` via ``git show``. A missing file reads as empty.
 
@@ -194,5 +224,5 @@ def read_files_at(ref: str, paths: list[str], repo: Path = Path()) -> dict[str, 
         proc = subprocess.run(
             ["git", "-C", str(repo), "show", f"{ref}:{path}"], capture_output=True, check=False
         )
-        out[path] = proc.stdout.decode("utf-8", errors="replace") if proc.returncode == 0 else ""
+        out[path] = decode_requirements(proc.stdout) if proc.returncode == 0 else ""
     return out
