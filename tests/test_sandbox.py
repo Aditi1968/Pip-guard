@@ -419,3 +419,70 @@ def test_runner_drain_caps() -> None:
     flags = {"truncated": False}
     runner._drain(io.BytesIO(b"x" * 100), buf, 40, flags)  # type: ignore[arg-type]
     assert len(buf) == 40 and flags["truncated"]
+
+
+# ------------------------------------------------------------------ origin + compiled code
+
+
+def test_fetched_package_requires_origin(tmp_path: Path) -> None:
+    from pydantic import ValidationError
+
+    good = _pkg(tmp_path)
+    with pytest.raises(ValidationError, match="origin"):
+        FetchedPackage(spec=good.spec, artifacts=good.artifacts, metadata=PackageMetadata())  # type: ignore[call-arg]
+
+
+def test_unknown_origin_is_refused_and_starts_no_container(tmp_path: Path) -> None:
+    pkg = _pkg(tmp_path, origin="unknown")
+    for pr in (False, True):
+        ok, why = policy_allows(pkg, pr_candidate=pr, fixtures_root=tmp_path)
+        assert not ok and "unknown" in why
+    d = FakeDocker()
+    t = _run(tmp_path, d, pkg=pkg, pr_candidate=True)
+    assert t.completeness is Completeness.SKIPPED_POLICY
+    assert d.calls == []
+
+
+def _native_wheel(tmp: Path) -> Path:
+    import zipfile
+
+    p = tmp / "t-1.0-cp312-cp312-manylinux_2_17_x86_64.whl"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("t/__init__.py", "from t._speedups import f\n")
+        zf.writestr("t/_speedups.cpython-312-x86_64-linux-gnu.so", b"\x7fELF")
+        zf.writestr("t.libs/libz-1a2b.so.1.2.13", b"\x7fELF")
+    return p
+
+
+@pytest.mark.parametrize(
+    "results", [{"t": "ok"}, {"t": "ImportError"}], ids=["import-ok", "import-failed"]
+)
+def test_compiled_extension_is_incomplete_naming_the_file(
+    tmp_path: Path, results: dict[str, str]
+) -> None:
+    """Item: noexec tmpfs stays; native code is never observed, so never COMPLETE."""
+    whl = _native_wheel(tmp_path)
+    pkg = _pkg(tmp_path).model_copy(update={"artifacts": [_artifact(whl)]})
+    t = _run(tmp_path, FakeDocker(DockerResult(0, _envelope(results=results), b"")), pkg=pkg)
+    assert t.completeness is Completeness.IMPORT_FAILED
+    assert not t.completeness.is_complete
+    assert "_speedups.cpython-312-x86_64-linux-gnu.so" in t.completeness_reason
+    assert "noexec" in t.completeness_reason
+
+
+def test_compiled_extensions_reads_zip_index_only(tmp_path: Path) -> None:
+    assert sandbox.compiled_extensions(str(_native_wheel(tmp_path))) == [
+        "t.libs/libz-1a2b.so.1.2.13",
+        "t/_speedups.cpython-312-x86_64-linux-gnu.so",
+    ]
+    bad = tmp_path / "bad.whl"
+    bad.write_bytes(b"not a zip")
+    assert sandbox.compiled_extensions(str(bad)) == []
+
+
+def test_compiled_extension_does_not_mask_a_timeout(tmp_path: Path) -> None:
+    whl = _native_wheel(tmp_path)
+    pkg = _pkg(tmp_path).model_copy(update={"artifacts": [_artifact(whl)]})
+    env = _envelope(steps=[_step("install"), _step("import", exit_code=None, timed_out=True)])
+    t = _run(tmp_path, FakeDocker(DockerResult(0, env, b"")), pkg=pkg)
+    assert t.completeness is Completeness.TIMEOUT

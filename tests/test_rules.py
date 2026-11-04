@@ -319,3 +319,15 @@ def test_evidence_and_extra_features_cover_contract() -> None:
     feats, ev = build_inputs(static(), trace())
     assert set(FEATURE_NAMES) <= set(feats)
     assert set(ev) == set(EVIDENCE_KEYS)
+
+
+def test_evaluate_all_agrees_with_evaluate() -> None:
+    from pipguard.rules import evaluate, evaluate_all, load_rules
+
+    rs = load_rules()
+    feats = dict.fromkeys(FEATURE_NAMES, 0.0) | {"connect_install_external_count": 1.0}
+    ev: dict[str, str] = {}
+    rows = evaluate_all(rs, feats, ev)
+    assert len(rows) == len(rs.blocking) + len(rs.warning)
+    assert [r["rule"] for r in rows if r["fired"]] == [h.rule_id for h in evaluate(rs, feats, ev)]
+    assert any(r["fired"] for r in rows) and any(not r["fired"] for r in rows)

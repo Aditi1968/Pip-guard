@@ -92,7 +92,7 @@ docker build -f sandbox/sandbox.Dockerfile -t pipguard-sandbox:local .
 uv run pipguard scan requests==2.31.0                             # static + sandbox, JSON
 uv run pipguard scan --no-sandbox --artifact path/to/pkg-1.0-py3-none-any.whl  # a local wheel
 # (--artifact is static-only by policy, FR-4.10: without --no-sandbox the verdict is incomplete)
-uv run pipguard explain requests==2.31.0                          # trace, features, rule hits
+uv run pipguard explain requests==2.31.0                          # trace, features, every rule (fired or not)
 ```
 
 Exit codes (FR-7.4): `0` allow or warn, `1` warn with `--fail-on-warn`, `2` block, `3` error or incomplete. A crash or a usage error also exits `3`.
@@ -122,6 +122,7 @@ Behavioural features are **not** claimed to improve Track A, because Track A sam
 - Docker is not a VM; a kernel exploit could escape. Acceptable for a CI scanner analysing PR candidates, not for analysing targeted malware.
 - Dynamic results exist only for fixtures and PR-proposed packages; the real-world corpus is evaluated statically.
 - Wheels only in the sandbox; sdist build-backend behaviour is not exercised.
+- Packages with compiled extensions (`.so`, `.pyd`) are never fully observed: the sandbox's writable mounts are `noexec`, so native code cannot load. Such packages are `incomplete` with a reason naming the extension, and the check fails.
 - Environment-variable reads and DNS names are not observable; credential-file reads and `connect()` destinations are.
 - Only exactly pinned direct dependencies in `requirements.txt` and `pyproject.toml`.
 - Behaviour triggered by specific inputs, timers or environment checks is not observed.

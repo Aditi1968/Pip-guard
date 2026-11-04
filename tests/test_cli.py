@@ -163,3 +163,26 @@ def test_ci_uses_base_config_not_the_prs(repo: Path, tmp_path: Path) -> None:
     )
     assert r.exit_code == 2, r.output
     assert "base branch" in r.output
+
+
+def test_explain_lists_every_rule_with_features(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FR-7.3: every rule evaluated, fired or not, with the feature values it read."""
+    from pipguard.pipeline import scan_artifact
+    from pipguard.rules import load_rules
+
+    wheel = build_wheel(tmp_path, "hookpkg", "1.0", {"hookpkg/__init__.py": "X = 1\n"})
+    monkeypatch.setattr(
+        "pipguard.cli.scan_spec", lambda _spec, opts, work: scan_artifact(wheel, opts, work)
+    )
+    r = runner.invoke(app, ["explain", "--no-sandbox", "hookpkg==1.0"])
+    out = json.loads(r.output)
+    rs = load_rules()
+    assert [e["rule"] for e in out["rules"]] == [x.id for x in rs.blocking + rs.warning]
+    for e in out["rules"]:
+        assert isinstance(e["fired"], bool) and e["features"]
+        assert set(e["features"]) <= set(out["features"])
+        assert (e["reason"] is not None) == e["fired"]
+    assert not any(e["fired"] for e in out["rules"])  # benign: all evaluated, none fired
+    assert r.exit_code == 0

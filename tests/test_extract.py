@@ -206,7 +206,10 @@ def test_extract_package(tmp_path: Path) -> None:
         filename=whl.name, kind=ArtifactKind.WHEEL, sha256="0" * 64, size=1, path=str(whl)
     )
     pkg = FetchedPackage(
-        spec=PackageSpec(name="demo", version="1.0"), artifacts=[art], metadata=PackageMetadata()
+        spec=PackageSpec(name="demo", version="1.0"),
+        artifacts=[art],
+        metadata=PackageMetadata(),
+        origin="pypi",
     )
     out = extract_package(pkg, tmp_path / "x")
     assert pkg.artifacts[0].extracted_path is None  # original untouched (frozen models)

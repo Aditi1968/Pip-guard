@@ -36,7 +36,7 @@ def _pkg(wheel: Path, spec: PackageSpec) -> FetchedPackage:
         size=wheel.stat().st_size,
         path=str(wheel),
     )
-    return FetchedPackage(spec=spec, artifacts=[art], metadata=PackageMetadata())
+    return FetchedPackage(spec=spec, artifacts=[art], metadata=PackageMetadata(), origin="pypi")
 
 
 def _fetcher(tmp_path: Path, files: Mapping[str, str | bytes] = QUIET):

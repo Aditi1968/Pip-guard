@@ -163,6 +163,7 @@ Behavioural features are never claimed to improve Track A, because Track A sampl
 | [06-diff-cache-report-action.md](06-diff-cache-report-action.md) | E: diff, cache, report, action, CLI | FR-1.1 to FR-1.3, FR-6.1 to FR-6.6, FR-7.1, FR-7.3, FR-7.4 |
 | [07-evaluation.md](07-evaluation.md) | F: Track A scaffolding | FR-5.2, FR-5.8, PRD "Data, ML and evaluation" |
 | [08-integration-demo.md](08-integration-demo.md) | Merging, integration bugs, demo, Track C | Track C, FR-4.10 policy for PR-proposed wheels |
+| [09-final-decisions.md](09-final-decisions.md) | Author decisions: noexec, strace pin, explain, origin | FR-4.7, FR-4.10, FR-7.3 |
 
 ## Top 15 interview questions
 

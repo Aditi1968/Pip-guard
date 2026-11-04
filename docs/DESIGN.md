@@ -88,7 +88,7 @@ Image: slim Python + strace, non-root, pinned base digest, plus our in-container
 
 Run command (fixed; FR-4.7; `sandbox.docker_run_argv`): `docker run --rm -i --name pipguard-<uuid> --network none --read-only --tmpfs /tmp:rw,size=256m,mode=1777 --tmpfs /sandbox/site-packages:rw,size=512m,mode=1777 --tmpfs /sandbox/deps:rw,size=512m,mode=1777 --tmpfs /home/sandbox/.cache:rw,size=256m,mode=1777 --cap-drop ALL --security-opt no-new-privileges --security-opt seccomp=<repo>/sandbox/seccomp-default.json --memory 1g --pids-limit 256 --user 10001:10001 <image> python -I /opt/pipguard/runner.py <install_s> <import_s>`. No bind mounts, no Docker socket, no environment passthrough. The host shells out to the `docker` CLI with list arguments and a timeout on every call.
 
-**Policy guard (FR-4.10, `policy_allows`).** `origin="pypi"` runs only when the caller marks it as a PR candidate. `origin="fixture"` runs only when every artifact file (target, sdist, dependency wheels) resolves inside `fixtures_root` (default `tests/fixtures`; the Docker tests build wheels into a temp dir and pass that). `origin="local_artifact"` runs only when the caller marks it as a PR candidate: a wheel the PR itself ships, i.e. the demo's `--local-index`. `pipguard scan --artifact` and the evaluation batch runner never set that flag, so arbitrary local files and the archived corpus never run. A denial returns `skipped:policy` without starting a container; a package without a wheel returns `incomplete:no_wheel`, also without a container.
+**Policy guard (FR-4.10, `policy_allows`).** `origin="pypi"` runs only when the caller marks it as a PR candidate. `origin="fixture"` runs only when every artifact file (target, sdist, dependency wheels) resolves inside `fixtures_root` (default `tests/fixtures`; the Docker tests build wheels into a temp dir and pass that). `origin="local_artifact"` runs only when the caller marks it as a PR candidate: a wheel the PR itself ships, i.e. the demo's `--local-index`. `pipguard scan --artifact` and the evaluation batch runner never set that flag, so arbitrary local files and the archived corpus never run. `origin` is a required field with no default; `origin="unknown"` (and anything else) is always refused. A denial returns `skipped:policy` without starting a container; a package without a wheel returns `incomplete:no_wheel`, also without a container.
 
 **Transport.** The target wheel and dependency wheels go in as a tar on stdin. Results come back as one envelope on the runner's stdout: `PIPGUARD-ENVELOPE-V1 <len>\n<json>` with per-step exit code, wall time, timeout flag and base64 trace, the module list and per-module import results. The host reads at most 12 MB of stdout, validates the envelope with a strict pydantic model (extra fields forbidden, module names must be identifiers, lengths capped) and caps decoded trace text at 5 MB per package before parsing. Garbled envelope → `incomplete:sandbox_error`; oversize output or trace → `incomplete:trace_truncated` with `truncated=True`.
 
@@ -113,7 +113,7 @@ Field and list caps set `truncated=True` but keep the observation (the evidence 
 
 **Tamper resistance and its limits.** The package runs as the same uid as the runner and strace. Mitigations: strace writes to a pipe the runner reads (`-o /dev/stderr`), not a file in `/tmp` the package could rewrite or truncate; the traced programs move their own fds 1 and 2 to log files before any package code runs, so package output cannot enter the trace pipe or the envelope; the runner (PID 1) makes itself non-dumpable, so the package cannot open `/proc/1/fd/1` to forge the envelope. Residual limits, accepted for v1: the package can open strace's pipe through `/proc/<strace pid>/fd` and inject text. That cannot remove lines strace already wrote, but an injected partial line can corrupt the next real line, which the parser then counts as garbage. It can kill strace (exit code ≠ 0 → `incomplete`), and code running in the same interpreter can forge the per-module import results. None of this is fixable without a second uid or a tracer outside the container (eBPF, P2).
 
-**noexec consequence.** Docker's tmpfs default is `noexec`, so compiled extensions (`.so`) in `/sandbox/site-packages` cannot be mapped. Such packages fail import, which yields `incomplete:import_failed` and fails closed. Allowing `exec` on that tmpfs is an open decision for the author, not taken.
+**noexec consequence.** Docker's tmpfs default is `noexec`, so compiled extensions (`.so`) in `/sandbox/site-packages` cannot be mapped. Decided 2026-11-04: keep `noexec`. `sandbox.compiled_extensions` lists native files from the wheel's zip index (nothing is extracted), and any wheel containing them is `incomplete:import_failed` with a reason naming the extension, even if the import happened to succeed (an optional extension may have been skipped silently). The check fails (exit 3).
 
 What strace can and cannot see: subprocess argv, file opens/writes and `connect()` destinations, yes; environment-variable reads and DNS names, no. The schema contains only the former.
 
@@ -147,6 +147,7 @@ Behavioural features are not claimed to improve Track A, because Track A samples
 - Docker is not a VM; a kernel exploit could escape. Acceptable for a CI scanner of PR candidates, not for targeted malware.
 - Sandbox-aware code can behave benignly in the container.
 - Wheels only in the sandbox; sdist build-backend behaviour is not exercised.
+- Packages with compiled extensions (`.so`, `.pyd`) are never fully observed: the sandbox's writable mounts are `noexec`, so native code cannot load. Such packages are `incomplete` with a reason naming the extension, and the check fails.
 - Env-var reads and DNS names are not observable; credential-file opens and `connect()` destinations are.
 - Only exactly pinned direct dependencies in `requirements.txt` and `pyproject.toml`.
 - Behaviour that triggers on specific inputs, timers or environment checks is not observed.
@@ -167,7 +168,7 @@ Result (2026-11-02, local): **yes, strace works under the hardened flags. No rel
   - container exit 0, `SPIKE_RESULT=pass`.
 - Inside the container: `CapEff: 0`, `NoNewPrivs: 1`, `Seccomp: 2` (filter mode), uid 10001.
 - Finding: `docker info` on Docker Desktop reports `seccomp profile=unconfined`, even though a filter was active in the container. To avoid depending on daemon configuration, the sandbox passes Docker's own default profile explicitly (`sandbox/seccomp-default.json`, moby v27.5.1, sha256 `9c1025c8…9c76`). This is the same profile `ubuntu-latest` applies by default, so it tightens isolation and never relaxes it.
-- Known consequence, not a relaxation: Docker's tmpfs default is `noexec`, so compiled extensions (`.so`) cannot be mapped from `/sandbox/site-packages`. Such packages fail import, which yields `incomplete:import_failed` and fails closed. Allowing `exec` on that tmpfs is an open decision for the author, not taken.
+- Known consequence, not a relaxation: Docker's tmpfs default is `noexec`, so compiled extensions (`.so`) cannot be mapped from `/sandbox/site-packages`. Such packages fail import, which yields `incomplete:import_failed` and fails closed. Decided 2026-11-04: `noexec` stays (see Decisions log).
 - Docker Desktop was flaky during the spike: one probe container could not be killed. That is a local environment issue, unrelated to the flags.
 
 ## Decisions log
@@ -187,5 +188,10 @@ Result (2026-11-02, local): **yes, strace works under the hardened flags. No rel
   - The sandbox adds `--memory-swap 1g`, so there is no swap beyond the 1 GB cap.
   - The PR comment can be posted by a separate job (`pull-requests: write`) while the scanning job keeps `contents: read`.
   - Dependabot is added.
-  - Still open: model and thresholds (FR-5.2/5.8, need the corpus), GHCR image publishing, the apt `strace` pin, `explain` listing every rule rather than only hits (FR-7.3, P1), and making `FetchedPackage.origin` required.
+  - Still open: model and thresholds (FR-5.2/5.8, need the corpus).
+- 2026-11-04 — Author decisions on the remaining open items:
+  - Compiled extensions: keep the `noexec` tmpfs; never loosen isolation. A wheel with native code is `incomplete` with a reason naming the extension and fails the check. Added to the known limitations.
+  - `strace` pinned with apt as `strace=6.1-0.1` (Debian bookworm, the base image's release; checked on packages.debian.org 2026-11-04). A bookworm point release that replaces 6.1-0.1 makes the build fail loudly rather than drift; bump the pin then. GHCR image publishing waits until the repo is public (PLAN.md TODO).
+  - `pipguard explain` prints every rule with `fired` true/false and the feature values its condition read (`rules.evaluate_all`, which shares `_holds` with `evaluate`, so it cannot disagree with the verdict).
+  - `FetchedPackage.origin` is required (no default) and gains `"unknown"`, which the sandbox policy always refuses. A caller that forgets to set origin now fails validation instead of silently getting the most permissive value.
 

@@ -596,6 +596,7 @@ def fetch(
         metadata=_metadata(version_json, project_json, now),
         declared_requirements=requirements,
         declared_deps=deps,
+        origin="pypi",
     )
 
 

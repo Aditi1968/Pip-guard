@@ -189,7 +189,7 @@ def explain(
     image: str = ImageOpt,
 ) -> None:
     """Print the full trace, feature values and rule evaluations for one package (FR-7.3)."""
-    from pipguard.rules import build_inputs, evaluate, load_rules
+    from pipguard.rules import build_inputs, evaluate_all, load_rules
 
     setup_logging()
     new_correlation_id()
@@ -203,9 +203,8 @@ def explain(
     out: dict[str, object] = {"verdict": json.loads(result.verdict.model_dump_json())}
     if result.static is not None:
         feats, evidence = build_inputs(result.static, result.trace)
-        hits = evaluate(load_rules(), feats, evidence)
         out["features"] = feats
-        out["rule_hits"] = [{"rule": h.rule_id, "class": h.klass, "reason": h.reason} for h in hits]
+        out["rules"] = evaluate_all(load_rules(), feats, evidence)  # every rule, fired or not
         out["static"] = json.loads(result.static.model_dump_json())
     out["trace"] = json.loads(result.trace.model_dump_json()) if result.trace else None
     typer.echo(json.dumps(out, indent=2))

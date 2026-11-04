@@ -97,6 +97,11 @@ Goal: a repo a reviewer understands in two minutes and a build that is green fro
 - [x] `docs/COSTS.md` complete: ₹0 per phase, free tiers touched
 - [ ] Fresh clone check: `uv sync` then `uv run pytest` with network disabled passes; one CI job does exactly this — `offline` CI job written (`unshare --net`); passes locally offline-by-guard; not yet run on GitHub
 - [x] Clean docstrings; `pyright` clean; coverage ≥ 80% on `static.py`, `scoring.py`, `trace.py`, exit-code mapping — measured 2026-11-03: static 97%, scoring 100%, trace 99%, report (exit codes) 100%
+- [x] Compiled extensions: `noexec` kept; native-code wheels are `incomplete` with the extension named, check fails; listed in known limitations (decision 2026-11-04)
+- [x] `strace` pinned in `sandbox/sandbox.Dockerfile` (`strace=6.1-0.1`, recorded in DESIGN)
+- [x] `pipguard explain` lists every rule evaluated, fired or not, with the feature values it read (FR-7.3)
+- [x] `FetchedPackage.origin` required; `"unknown"` added and refused by the sandbox policy (FR-4.10)
+- [ ] TODO after the repo is public: publish the sandbox image to GHCR, pinned by digest, and pull it in the Action instead of building
 - [ ] Tag `v0.1.0`
 
 ## Deferred to v2 (do not build in v1)

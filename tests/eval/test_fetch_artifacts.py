@@ -33,7 +33,7 @@ def test_fetch_row_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake
         art = Artifact(
             filename=path.name, kind=ArtifactKind.SDIST, sha256=sha, size=1, path=str(path)
         )
-        return FetchedPackage(spec=spec, artifacts=[art], metadata=PackageMetadata())
+        return FetchedPackage(spec=spec, artifacts=[art], metadata=PackageMetadata(), origin="pypi")
 
     monkeypatch.setattr(fa, "_latest_version", lambda name: "2.0")
     monkeypatch.setattr(fa, "_fetch", fake_fetch)

@@ -113,8 +113,10 @@ class FetchedPackage(_Model):
     declared_requirements: list[str] = Field(default_factory=list)
     # Wheels for the declared dependencies, preinstalled untraced in the sandbox (FR-2.5).
     declared_deps: list[Artifact] = Field(default_factory=list)
-    # Where this package came from; the sandbox policy guard reads it (FR-4.10).
-    origin: Literal["pypi", "local_artifact", "fixture"] = "pypi"
+    # Where this package came from; the sandbox policy guard reads it (FR-4.10). Required,
+    # with no default: a forgotten origin must not silently become the permissive "pypi".
+    # "unknown" exists for callers that cannot say; the sandbox refuses it.
+    origin: Literal["pypi", "local_artifact", "fixture", "unknown"]
 
     @property
     def wheel(self) -> Artifact | None:

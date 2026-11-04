@@ -209,7 +209,10 @@ def test_missing_dir_fails_closed(tmp_path: Path) -> None:
 def test_analyze_requires_extraction(tmp_path: Path) -> None:
     art = Artifact(filename="a.whl", kind=ArtifactKind.WHEEL, sha256=SHA, size=1, path="a.whl")
     pkg = FetchedPackage(
-        spec=PackageSpec(name="a", version="1"), artifacts=[art], metadata=PackageMetadata()
+        spec=PackageSpec(name="a", version="1"),
+        artifacts=[art],
+        metadata=PackageMetadata(),
+        origin="pypi",
     )
     with pytest.raises(PipGuardError, match="not extracted"):
         analyze(pkg, snapshot=small_top())

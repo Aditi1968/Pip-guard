@@ -22,6 +22,7 @@ import subprocess
 import tarfile
 import threading
 import uuid
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal, Protocol
@@ -180,6 +181,7 @@ def policy_allows(
       a wheel the PR itself ships (the demo's ``--local-index``). ``pipguard scan
       --artifact`` and the evaluation batch runner never set that flag, so arbitrary local
       files and the archived malware corpus are never executed.
+    - anything else, including ``"unknown"``: refused.
     """
     if pkg.origin == "pypi":
         return (True, "PR candidate") if pr_candidate else (False, "not proposed by a PR")
@@ -188,9 +190,11 @@ def policy_allows(
         if files and all(_inside(p, fixtures_root) for p in files):
             return True, "pip guard fixture"
         return False, "fixture artifact outside the fixtures directory"
-    if pkg.origin == "local_artifact" and pr_candidate:
-        return True, "wheel proposed by the PR"
-    return False, "local artifacts are analysed statically only"
+    if pkg.origin == "local_artifact":
+        if pr_candidate:
+            return True, "wheel proposed by the PR"
+        return False, "local artifacts are analysed statically only"
+    return False, f"unknown package origin {pkg.origin!r}"
 
 
 # ---------------------------------------------------------------- envelope
@@ -243,6 +247,38 @@ def _credential_paths() -> list[str]:
 
 
 # ---------------------------------------------------------------- run
+
+_NATIVE = re.compile(r"\.(so(\.[0-9.]+)?|pyd|dylib)$", re.IGNORECASE)
+
+
+def compiled_extensions(wheel_path: str) -> list[str]:
+    """Native-code files in the wheel, read from the zip index only (nothing is extracted).
+
+    The sandbox's writable dirs are tmpfs mounted noexec (Docker's default), so the dynamic
+    loader cannot map these files executable. That is a deliberate isolation choice
+    (DESIGN.md "Compiled extensions"), so such a package's behaviour is never fully observed
+    and its trace must not count as complete.
+    """
+    try:
+        with zipfile.ZipFile(wheel_path) as zf:
+            names = zf.namelist()
+    except (OSError, zipfile.BadZipFile):
+        return []  # the install step fails on a bad zip anyway (sandbox_error)
+    return sorted(n for n in names if _NATIVE.search(n))
+
+
+def _compiled_state(
+    state: Completeness, reason: str, native: list[str]
+) -> tuple[Completeness, str]:
+    """Fail closed: a wheel with native code is never COMPLETE, whatever the import said."""
+    if not native or state not in (Completeness.COMPLETE, Completeness.IMPORT_FAILED):
+        return state, reason
+    shown = ", ".join(Path(n).name[:80] for n in native[:3])
+    more = f" (+{len(native) - 3} more)" if len(native) > 3 else ""
+    return Completeness.IMPORT_FAILED, (
+        f"compiled extension {shown}{more} cannot load in the noexec sandbox; "
+        "native code was not observed (known limitation)"
+    )
 
 
 def _verdict_state(env: _Envelope, truncated: bool) -> tuple[Completeness, str]:
@@ -354,6 +390,7 @@ def run(
         parsed.append(p)
 
     state, reason = _verdict_state(env, truncated)
+    state, reason = _compiled_state(state, reason, compiled_extensions(wheel.path))
     return result(
         state,
         reason,

@@ -205,6 +205,34 @@ def evaluate(
     return hits
 
 
+def evaluate_all(
+    ruleset: RuleSet, features: dict[str, float], evidence: dict[str, str]
+) -> list[dict[str, object]]:
+    """Every rule, fired or not, with the feature values it read (FR-7.3, ``explain``).
+
+    Shares ``_holds`` with :func:`evaluate`, so explain can never disagree with the verdict.
+    """
+    out: list[dict[str, object]] = []
+    for klass, rules in (("blocking", ruleset.blocking), ("warning", ruleset.warning)):
+        for rule in rules:
+            names = list(dict.fromkeys(_features_in(rule.when)))
+            try:
+                fired = _holds(rule.when, features)
+            except KeyError as exc:
+                raise PipGuardError(f"rule {rule.id}: feature {exc} not supplied") from exc
+            out.append(
+                {
+                    "rule": rule.id,
+                    "class": klass,
+                    "fired": fired,
+                    "description": rule.description,
+                    "features": {n: features[n] for n in names},
+                    "reason": render(rule.reason, features, evidence) if fired else None,
+                }
+            )
+    return out
+
+
 # ---------------------------------------------------------------- inputs
 
 

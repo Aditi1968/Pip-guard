@@ -66,7 +66,7 @@ def pkg(sdist: bool = False) -> FetchedPackage:
                 filename="s.tar.gz", kind=ArtifactKind.SDIST, sha256="b" * 64, size=1, path="s"
             )
         )
-    return FetchedPackage(spec=SPEC, artifacts=arts, metadata=PackageMetadata())
+    return FetchedPackage(spec=SPEC, artifacts=arts, metadata=PackageMetadata(), origin="pypi")
 
 
 def trace(completeness: Completeness = Completeness.COMPLETE, **kw: object) -> BehaviorTrace:
@@ -334,3 +334,14 @@ def test_unsupported_verdict() -> None:
     pinned = DependencyChange(raw="a==1", source_file="r", kind=ChangeKind.ADDED, spec=SPEC)
     with pytest.raises(ValueError):
         unsupported_verdict(pinned)
+
+
+def test_compiled_extension_trace_fails_the_check() -> None:
+    """Decision: noexec stays; a compiled-extension package is incomplete and exits 3."""
+    from pipguard.report import exit_code
+
+    why = "compiled extension _speedups.so cannot load in the noexec sandbox"
+    v = run(static(), trace(Completeness.IMPORT_FAILED, completeness_reason=why))
+    assert v.level is Level.INCOMPLETE
+    assert any("_speedups.so" in r for r in v.reasons)
+    assert exit_code([v.level], fail_on_warn=False) == 3
