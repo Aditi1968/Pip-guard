@@ -12,6 +12,8 @@ pip guard is a CI gate that judges a Python dependency by what it does, not only
 
 **Owner and status.** Personal portfolio project by Aditi Vadmal. Version 1 target: an exact-artifact scanner that statically analyses PyPI packages, demonstrates controlled behavioural tracing on fixtures and PR-proposed packages, fails a GitHub check on a planted malicious package in a demo repository, and publishes an evaluation with provenance and confidence intervals. Budget: ₹0 / $0, about 118 hours over 10 weeks.
 
+**Revision 0.3 (4 Nov 2026).** Added FR-4.12 and the matching known limitation: wheels with native extensions are `incomplete` in the `noexec` sandbox and fail the check.
+
 **Revision 0.2 (2 Nov 2026).** Incorporates two independent senior engineering reviews. Scope was cut to fit the hour budget; sandbox, tracing and CI claims were narrowed to what the chosen tools can actually observe and enforce; several internal contradictions were resolved. Every verdict now carries a coverage state so a clean result is never confused with an unexamined one.
 
 **Related documents.** `docs/DESIGN.md` (architecture detail) and `docs/PLAN.md` (phase checklist) live in the repository and are updated from this PRD, which is the source of truth for scope and requirements.
@@ -142,6 +144,7 @@ Each requirement has an ID so it can be referenced from issues, tests and the pl
 | FR-4.9 | gVisor (`runsc`) runtime, once the spike shows strace works under it on `ubuntu-latest` | P2 |
 | FR-4.10 | Dynamic analysis runs **only** on pip guard's own fixture packages and on packages a PR actually proposes. Archived real-world malware is never executed | P0 |
 | FR-4.11 | strace output is **attacker-influenced**: parse defensively, cap every field length, escape before rendering, and fuzz-test the parser | P0 |
+| FR-4.12 | Wheels containing native extensions (`.so`, `.pyd`, `.dylib`) cannot load in the `noexec` sandbox: they return `incomplete` with a reason naming the extension and fail the check. Isolation is never relaxed to run them | P0 |
 
 **FR-5 Scoring**
 
@@ -380,6 +383,7 @@ The risks most likely to sink the project are the sandbox eating the schedule an
 - Docker is not a VM; a kernel exploit could escape. Acceptable for a CI scanner analysing PR candidates, not for analysing targeted malware.
 - Dynamic results exist only for fixtures and PR-proposed packages; the real-world corpus is evaluated statically.
 - Wheels only in the sandbox; sdist build-backend behaviour is not exercised.
+- Packages with compiled extensions (`.so`, `.pyd`) are never fully observed: the sandbox's writable mounts are `noexec`, so native code cannot load. Such packages are `incomplete` with a reason naming the extension, and the check fails.
 - Environment-variable reads and DNS names are not observable; credential-file reads and `connect()` destinations are.
 - Only exactly pinned direct dependencies in `requirements.txt` and `pyproject.toml`.
 - Behaviour triggered by specific inputs, timers or environment checks is not observed.
