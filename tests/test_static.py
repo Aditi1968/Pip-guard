@@ -433,3 +433,16 @@ def test_popular_package_is_not_a_typosquat_of_another() -> None:
     r = typosquat("six", top)
     assert r.distance is None and not r.fired
     assert typosquat("requets", top).fired
+
+
+def test_invalid_escape_in_package_code_emits_no_warning(tmp_path: Path) -> None:
+    r"""Package code like "a\_b" must not spray SyntaxWarnings over the CLI output."""
+    import warnings
+
+    from pipguard.models import ArtifactKind
+
+    (tmp_path / "m.py").write_bytes(b'x = "a\\_b"\n')
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # any warning fails the test
+        feats = static.analyze_dir(tmp_path, "m-1.0.tar.gz", "0" * 64, ArtifactKind.SDIST)
+    assert feats.py_file_count == 1 and feats.syntax_error_count == 0

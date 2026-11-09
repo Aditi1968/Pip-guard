@@ -15,15 +15,19 @@ import argparse
 import ast
 import hashlib
 import json
+import logging
 import random
 import shutil
 import tempfile
+import warnings
 import zipfile
 from collections import defaultdict
 from pathlib import Path
 
 from pipguard.models import normalize_name
 from scripts.eval.manifest import DATA, MANIFEST_CSV, ManifestRow, write_manifest
+
+log = logging.getLogger(__name__)
 
 DATADOG_PASSWORD = "infected"  # published in the Datadog dataset README
 MAX_FILES = 20_000  # same ceilings as extract.py (DESIGN.md), enforced while decrypting
@@ -99,7 +103,11 @@ def extract_sample(path: Path, dest: Path, password: str | None = None) -> Path:
 def _normalized(src: bytes) -> bytes:
     """Source with comments and formatting removed; raw bytes if it does not parse."""
     try:
-        return ast.unparse(ast.parse(src)).encode()
+        # Sample code is full of invalid escapes like "\_"; its SyntaxWarnings are noise.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(src)
+        return ast.unparse(tree).encode()
     except (SyntaxError, ValueError, RecursionError):
         return src
 
@@ -176,15 +184,25 @@ def datadog_rows(root: Path, work_dir: Path, password: str = DATADOG_PASSWORD) -
     return rows
 
 
-def ossf_rows(root: Path, known: set[tuple[str, str]]) -> tuple[list[ManifestRow], int]:
-    """PyPI OSV reports with explicit versions; ``(rows, reports skipped for no versions)``.
+def ossf_rows(root: Path, known: set[tuple[str, str]]) -> tuple[list[ManifestRow], int, int]:
+    """PyPI OSV reports with explicit versions.
 
+    Returns ``(rows, affected entries skipped for no versions, report files unreadable)``.
     Rows start without an artifact; ``fetch_artifacts`` downloads the still-fetchable ones.
+    A report that cannot be opened or parsed is logged and counted, never fatal: on Windows,
+    antivirus blocks some reports mid-run (WinError 225, surfaced as ``Errno 22``).
     """
     seen = set(known)
-    rows, skipped = [], 0
+    rows, skipped, unreadable = [], 0, 0
     for f in sorted((root / "osv" / "malicious" / "pypi").rglob("*.json")):
-        report = json.loads(f.read_text(encoding="utf-8"))
+        try:
+            report = json.loads(f.read_text(encoding="utf-8"))
+            if not isinstance(report, dict):
+                raise ValueError("report is not a JSON object")
+        except (OSError, ValueError) as exc:  # UnicodeDecodeError, JSONDecodeError
+            log.warning("skipping unreadable OpenSSF report %s: %s", f, exc)
+            unreadable += 1
+            continue
         for aff in report.get("affected", []):
             pkg = aff.get("package", {})
             if pkg.get("ecosystem") != "PyPI" or not pkg.get("name"):
@@ -205,7 +223,7 @@ def ossf_rows(root: Path, known: set[tuple[str, str]]) -> tuple[list[ManifestRow
                             notes=f"osv:{report.get('id', f.stem)}",
                         )
                     )
-    return rows, skipped
+    return rows, skipped, unreadable
 
 
 def benign_rows(
@@ -358,10 +376,10 @@ def main(argv: list[str] | None = None) -> int:
     snapshot = json.loads(args.top_pypi.read_text(encoding="utf-8"))
     randoms = args.random_names.read_text(encoding="utf-8").split() if args.random_names else []
     rows = datadog_rows(args.datadog, args.work_dir, args.password)
-    skipped = 0
+    skipped = unreadable = 0
     if args.ossf:
         known = {(normalize_name(r.name), r.version) for r in rows}
-        extra, skipped = ossf_rows(args.ossf, known)
+        extra, skipped, unreadable = ossf_rows(args.ossf, known)
         rows += extra
     sizes = {band: getattr(args, f"band_{band}") for band in DEFAULT_BANDS}
     rows += benign_rows(snapshot["names"], randoms, sizes, args.seed)
@@ -369,6 +387,7 @@ def main(argv: list[str] | None = None) -> int:
     write_manifest(rows, args.out)
     print(f"wrote {len(rows)} rows to {args.out} (snapshot {snapshot['snapshot_date']})")
     print(f"OpenSSF reports without explicit versions (skipped): {skipped}")
+    print(f"OpenSSF report files unreadable (skipped, see warnings): {unreadable}")
     return 0
 
 

@@ -139,9 +139,9 @@ def test_ossf_rows(tmp_path: Path) -> None:
         ],
     }
     (d / "MAL-1.json").write_text(json.dumps(report), encoding="utf-8")
-    rows, skipped = bm.ossf_rows(tmp_path, known={("evil-pkg", "1.0")})
+    rows, skipped, unreadable = bm.ossf_rows(tmp_path, known={("evil-pkg", "1.0")})
     assert [(r.name, r.version, r.source) for r in rows] == [("Evil_Pkg", "2.0", "openssf")]
-    assert skipped == 1 and rows[0].notes == "osv:MAL-1"
+    assert skipped == 1 and unreadable == 0 and rows[0].notes == "osv:MAL-1"
 
 
 def test_benign_rows_stratified_and_deterministic() -> None:
@@ -243,3 +243,38 @@ def test_grouped_split_never_leaks(pairs: list[tuple[str, str]], seed: int) -> N
             if k:
                 where.setdefault(k, set()).add((r.split, r.fold))
         assert all(len(v) == 1 for v in where.values()), where
+
+
+def test_ossf_unreadable_reports_are_skipped_and_counted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An antivirus-blocked (Errno 22) or garbled report is logged and counted, not fatal."""
+    d = tmp_path / "osv" / "malicious" / "pypi" / "x"
+    d.mkdir(parents=True)
+    good = {"id": "MAL-2", "affected": [{"package": {"ecosystem": "PyPI", "name": "ok"},
+                                         "versions": ["1.0"]}]}  # fmt: skip
+    (d / "MAL-2.json").write_text(json.dumps(good), encoding="utf-8")
+    (d / "MAL-3.json").write_text("{not json", encoding="utf-8")
+    (d / "MAL-4.json").write_text("[]", encoding="utf-8")
+    (d / "MAL-5.json").write_text("{}", encoding="utf-8")
+    real = Path.read_text
+
+    def read_text(self: Path, *a: object, **kw: object) -> str:
+        if self.name == "MAL-5.json":
+            raise OSError(22, "Invalid argument")
+        return real(self, *a, **kw)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    rows, skipped, unreadable = bm.ossf_rows(tmp_path, known=set())
+    assert [r.name for r in rows] == ["ok"]
+    assert (skipped, unreadable) == (0, 3)
+    assert sum("unreadable OpenSSF report" in r.message for r in caplog.records) == 3
+
+
+def test_normalized_hash_emits_no_syntax_warning() -> None:
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # any warning fails the test
+        out = bm._normalized(b'x = "a\\_b"\n')  # sample source with an invalid escape
+    assert out.startswith(b"x = ")
