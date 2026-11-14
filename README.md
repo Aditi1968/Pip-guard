@@ -1,6 +1,6 @@
 # pip guard
 
-[![ci](https://github.com/OWNER/pip-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/pip-guard/actions/workflows/ci.yml)
+[![ci](https://github.com/Aditi1968/Pip-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/Aditi1968/Pip-guard/actions/workflows/ci.yml)
 
 **Airport security for the code your project downloads.** pip guard is a CI gate that judges a Python dependency by what it does, not only by whether someone has already reported it.
 
@@ -60,7 +60,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
-      - uses: OWNER/pip-guard/action@<commit-sha>   # pin to a commit SHA
+      - uses: Aditi1968/Pip-guard/action@<commit-sha>   # pin to a commit SHA
         with:
           comment: "false"   # optional PR comment: see the separate job in demo/template
 ```
