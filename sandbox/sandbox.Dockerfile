@@ -3,7 +3,7 @@
 # Runtime hardening (network, caps, read-only FS, limits) is applied by sandbox.py at
 # `docker run`, not here; the image only provides a non-root user, strace and seeded files.
 # Base pinned by digest (python:3.12-slim-bookworm, resolved 2026-11-02).
-FROM python:3.12-slim-bookworm@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337
+FROM python:3.15-slim-bookworm@sha256:96599df822d0e1c6bb700014a05c7f3c8cabc6e0f7ff3c4f9f69cee033b4b5d9
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends strace=6.1-0.1 \
