@@ -20,7 +20,7 @@ dev = [
     "pytest>=8",
     "pytest-cov>=5",
     "hypothesis>=6.100",
-    "ruff>=0.6",
+    "ruff>=0.17.5",
     "pyright>=1.1.380",
 ]
 # Training/eval scripts; installed by default so their unit tests run. The corpus
